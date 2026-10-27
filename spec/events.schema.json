@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "collageDRproject internal event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "source",
+    "service_id",
+    "observed_at",
+    "policy_version",
+    "measurements"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "app.cpu.high",
+        "app.cpu.low",
+        "app.primary.unhealthy",
+        "app.primary.recovered",
+        "infrastructure.provision.failed",
+        "backup.failed",
+        "metrics.stale",
+        "policy.apply.requested",
+        "reconcile.requested",
+        "operation.started",
+        "operation.step.completed",
+        "operation.waiting",
+        "operation.paused",
+        "operation.succeeded",
+        "operation.failed",
+        "operation.cancelled",
+        "restore.started",
+        "restore.verified",
+        "restore.succeeded",
+        "restore.failed",
+        "restore.rolled_back",
+        "app.memory.saturated",
+        "certificate.renewal_failed",
+        "control_state.unavailable",
+        "control_state.recovered",
+        "infrastructure.drain.timeout",
+        "infrastructure.provision.exhausted",
+        "standby.unhealthy",
+        "standby.repaired"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "dashboard",
+        "automation",
+        "reconciliation",
+        "alertmanager",
+        "timer"
+      ]
+    },
+    "service_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "string",
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "instance_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "operation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "condition_fingerprint": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ]
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Durable, monotonically increasing per-operation sequence number; usable as the SSE event id for Last-Event-ID replay"
+    }
+  }
+}

@@ -1,0 +1,2600 @@
+openapi: 3.1.0
+info:
+  title: collageDRproject API design
+  version: 0.2.0
+  summary: Relief app and operations API contract
+  description: 'Architecture contract only. The relief app is login-free. Mutating operations on the ops
+    origin are protected by shared-operator HTTP Basic auth (Caddy basic_auth); GETs on ops stay open.
+    Native service integrations use server-side machine credentials. Errors use RFC 9457 problem details.
+    All mutating requests require an Idempotency-Key (pattern ^[A-Za-z0-9_-]{8,128}$): replays return
+    the original response with Idempotent-Replayed: true (operator operations are keyed per route template and never expire; a replay returns the original 202 and OperationAccepted body), key reuse with a different payload returns 422,
+    an in-flight duplicate returns 409 IDEMPOTENCY_IN_FLIGHT with Retry-After: 2 (bounded 2 s lock wait). Request bodies are limited to 8 KB.'
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+- url: https://ops.cproj.obed.one
+security: []
+tags:
+- name: relief
+  description: Public relief app (app.cproj.obed.one), no login
+- name: ops
+  description: Operations dashboard API (ops.cproj.obed.one)
+- name: health
+  description: Health and diagnostics endpoints
+paths:
+  /api/requests:
+    servers:
+    - url: https://app.cproj.obed.one
+    post:
+      operationId: createReliefRequest
+      summary: Create a relief request
+      tags:
+      - relief
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReliefRequestInput'
+      responses:
+        '201':
+          description: 'Created or replayed original result (Idempotent-Replayed: true on replay)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReliefRequest'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+    get:
+      operationId: listReliefRequests
+      summary: List relief requests
+      tags:
+      - relief
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      - name: resource_type
+        in: query
+        schema:
+          $ref: '#/components/schemas/ResourceType'
+      - name: urgency
+        in: query
+        schema:
+          $ref: '#/components/schemas/Urgency'
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/RequestStatus'
+      responses:
+        '200':
+          description: Paginated requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReliefRequestPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/requests/{id}:
+    servers:
+    - url: https://app.cproj.obed.one
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getReliefRequest
+      summary: Get a relief request with update history
+      tags:
+      - relief
+      responses:
+        '200':
+          description: Request with history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReliefRequestDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateReliefStatus
+      summary: Update relief request status
+      tags:
+      - relief
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      description: 'Allowed transitions: pending to in_progress, in_progress to resolved, in_progress
+        to pending, resolved to in_progress (reopen). Others return 422. A stale expected_version returns
+        409.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - status
+              - expected_version
+              properties:
+                status:
+                  $ref: '#/components/schemas/RequestStatus'
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Updated request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReliefRequest'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+  /api/demo/workload:
+    servers:
+    - url: https://app.cproj.obed.one
+    post:
+      operationId: runDemoWorkload
+      summary: Run bounded demo CPU workload
+      tags:
+      - relief
+      description: Public, gated by the DEMO_MODE flag and a rate limit (5 per 10 seconds).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemoWorkInput'
+      responses:
+        '200':
+          description: Bounded workload completed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /health/live:
+    servers:
+    - url: https://app.cproj.obed.one
+    get:
+      operationId: getAppLiveness
+      summary: Process liveness
+      tags:
+      - health
+      description: No database dependency; mounted first. The only check HAProxy uses.
+      responses:
+        '200':
+          description: Process alive
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /health/ready:
+    servers:
+    - url: https://app.cproj.obed.one
+    get:
+      operationId: getAppReadiness
+      summary: Readiness including database and schema
+      tags:
+      - health
+      description: For dashboard, Prometheus and StackStorm admission. Never removes a backend from HAProxy.
+      responses:
+        '200':
+          description: Ready
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          description: Not ready; structured dependency reason
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus metrics
+      tags:
+      - health
+      description: Served on the diagnostics listener only, not routed through the public HAProxy frontends.
+        No credentials or business record content.
+      responses:
+        '200':
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/overview:
+    get:
+      operationId: getOverview
+      summary: Desired and observed state summary
+      tags:
+      - ops
+      responses:
+        '200':
+          description: Observed/desired summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Overview'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/instances:
+    get:
+      operationId: listInstances
+      summary: List instance inventory
+      tags:
+      - ops
+      description: public_ip and provider_resource_id are redacted in public responses.
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      - name: lifecycle_state
+        in: query
+        schema:
+          $ref: '#/components/schemas/InstanceLifecycle'
+      - name: routing_mode
+        in: query
+        schema:
+          $ref: '#/components/schemas/RoutingMode'
+      - name: provider
+        in: query
+        schema:
+          $ref: '#/components/schemas/Provider'
+      responses:
+        '200':
+          description: Paginated inventory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstancePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/policies:
+    get:
+      operationId: getPolicies
+      summary: List active and pending policy versions
+      tags:
+      - ops
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Active/pending policy versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersionPage'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updatePolicy
+      summary: Request a typed policy change
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyPatch'
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+  /api/operations:
+    post:
+      operationId: requestInfrastructureOperation
+      summary: Request an infrastructure operation
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperationCommand'
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+    get:
+      operationId: listOperations
+      summary: List operations
+      tags:
+      - ops
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/OperationStatus'
+      - name: kind
+        in: query
+        schema:
+          $ref: '#/components/schemas/OperationKind'
+      responses:
+        '200':
+          description: Paginated operations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/operations/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getOperation
+      summary: Get operation state
+      tags:
+      - ops
+      responses:
+        '200':
+          description: Operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/operations/{id}/events:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: streamOperationEvents
+      summary: Stream operation progress events
+      tags:
+      - ops
+      parameters:
+      - $ref: '#/components/parameters/LastEventId'
+      responses:
+        '200':
+          description: Server-sent events with durable sequence IDs; reconnect with Last-Event-ID to replay
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/incidents:
+    get:
+      operationId: listIncidents
+      summary: List incidents
+      tags:
+      - ops
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      - name: state
+        in: query
+        schema:
+          $ref: '#/components/schemas/IncidentState'
+      - name: severity
+        in: query
+        schema:
+          $ref: '#/components/schemas/Severity'
+      responses:
+        '200':
+          description: Paginated incidents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/backups:
+    get:
+      operationId: listBackups
+      summary: List backup catalogue
+      tags:
+      - ops
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paginated backups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPage'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: requestBackup
+      summary: Request an immediate backup
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+  /api/backups/{id}/verify:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      operationId: verifyBackup
+      summary: Verify a backup by isolated restore test
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      description: Required before restore. Verification applies to a single backup and takes the heavy-job
+        slot.
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+  /api/restores:
+    post:
+      operationId: requestRestore
+      summary: Request a staged restore
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreInput'
+      description: Returns 422 unless the backup is verified and its verification is no older than 7 days
+        (recovery.max_verification_age_days; see Backup.verified_at), or if size headroom is insufficient
+        (current database size + restored size x 1.2 must be under 450 MB).
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+  /api/tests:
+    get:
+      operationId: listTestRuns
+      summary: List test runs
+      tags:
+      - ops
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paginated test runs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestRunPage'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: startTestRun
+      summary: Start a bounded k6 test run
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestRunInput'
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+  /api/tests/{id}/stop:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      operationId: stopTestRun
+      summary: Stop a running test run
+      tags:
+      - ops
+      security:
+      - opsBasic: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted asynchronous operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAccepted'
+          headers:
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Maintenance'
+components:
+  securitySchemes:
+    opsBasic:
+      type: http
+      scheme: basic
+      description: Shared operator password (Caddy basic_auth) on POST/PATCH/PUT/DELETE for ops.cproj.obed.one.
+        Audit actor is operator.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9_-]{8,128}$
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      description: Resume the stream after this durable sequence ID
+      schema:
+        type: string
+  headers:
+    RetryAfter:
+      description: Seconds to wait before retrying
+      schema:
+        type: integer
+        minimum: 0
+    IdempotentReplayed:
+      description: true when the response replays a stored original result
+      schema:
+        type: string
+        const: 'true'
+  responses:
+    BadRequest:
+      description: Malformed or invalid input
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing or invalid operator credentials
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        WWW-Authenticate:
+          description: Basic realm
+          schema:
+            type: string
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Version conflict, capacity conflict, or an in-flight duplicate Idempotency-Key (code IDEMPOTENCY_IN_FLIGHT;
+        Retry-After 2 after the bounded 2 s lock_timeout)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+    PayloadTooLarge:
+      description: Request body exceeds the 8 KB limit
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unprocessable:
+      description: Invalid policy, unsafe transition, unverified or too-old backup, insufficient database size
+        headroom for restore (current size + restored size x 1.2 must be under 450 MB), or Idempotency-Key
+        reused with a different payload (IDEMPOTENCY_KEY_REUSED)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Rate limit exceeded (Retry-After set). The configured test host (k6 VM) is exempt from
+        per-IP rate limits.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+    Maintenance:
+      description: Writes blocked for maintenance (MAINTENANCE_WRITES_BLOCKED), Retry-After per maintenance.retry_after_seconds
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+    ServiceUnavailable:
+      description: Dependency or control state unavailable (DEPENDENCY_UNAVAILABLE), or maintenance write
+        block (MAINTENANCE_WRITES_BLOCKED); writes fail closed
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details (application/problem+json)
+      required:
+      - type
+      - title
+      - status
+      - code
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+          description: Stable machine code, for example MAINTENANCE_WRITES_BLOCKED, DEPENDENCY_UNAVAILABLE,
+            IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_IN_FLIGHT, RESTORE_NOT_VERIFIED
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+      additionalProperties: true
+    ResourceType:
+      type: string
+      enum:
+      - food
+      - water
+      - medicine
+      - shelter
+    Urgency:
+      type: string
+      enum:
+      - low
+      - medium
+      - high
+      - critical
+    RequestStatus:
+      type: string
+      enum:
+      - pending
+      - in_progress
+      - resolved
+    Provider:
+      type: string
+      enum:
+      - self_hosted
+      - digitalocean
+      - linode
+    CloudProvider:
+      type: string
+      enum:
+      - digitalocean
+      - linode
+    InstanceLifecycle:
+      type: string
+      enum:
+      - reserved
+      - provisioning
+      - deploying
+      - ready
+      - draining
+      - deleting
+      - deleted
+      - failed
+      - unknown
+      description: unknown means uncertain existence; the slot stays counted
+    RoutingMode:
+      type: string
+      enum:
+      - none
+      - backup
+      - active
+      - draining
+    SlotState:
+      type: string
+      enum:
+      - free
+      - reserved
+      - bound
+      - releasing
+      - held_uncertain
+    OperationStatus:
+      type: string
+      enum:
+      - queued
+      - running
+      - waiting
+      - verifying
+      - paused
+      - reconciling
+      - cancelling
+      - cancelled
+      - succeeded
+      - failed
+    OperationKind:
+      type: string
+      enum:
+      - activate_standby
+      - scale_out
+      - scale_in
+      - primary_failure
+      - failback
+      - provision_and_deploy
+      - standby_repair
+      - reconcile
+      - apply_policy
+      - create_backup
+      - verify_backup
+      - restore_application
+      - start_load_test
+      - stop_load_test
+    PolicyStatus:
+      type: string
+      enum:
+      - pending
+      - active
+      - failed
+      - superseded
+    ActivationPhase:
+      type: string
+      enum:
+      - validating
+      - compiling
+      - applying
+      - verifying
+      - completed
+    CaptureStatus:
+      type: string
+      enum:
+      - capturing
+      - captured
+      - failed
+    VerificationStatus:
+      type: string
+      enum:
+      - unverified
+      - verifying
+      - verified
+      - failed
+    IncidentState:
+      type: string
+      enum:
+      - open
+      - resolved
+    Severity:
+      type: string
+      enum:
+      - info
+      - warning
+      - critical
+    IntegrationState:
+      type: string
+      enum:
+      - fresh
+      - stale
+      - unavailable
+    ReliefRequestInput:
+      type: object
+      additionalProperties: false
+      required:
+      - resource_type
+      - quantity
+      - location
+      - urgency
+      properties:
+        resource_type:
+          $ref: '#/components/schemas/ResourceType'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        location:
+          type: string
+          minLength: 1
+          maxLength: 500
+        urgency:
+          $ref: '#/components/schemas/Urgency'
+    ReliefRequest:
+      type: object
+      required:
+      - id
+      - resource_type
+      - quantity
+      - location
+      - urgency
+      - status
+      - version
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        resource_type:
+          $ref: '#/components/schemas/ResourceType'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        location:
+          type: string
+          minLength: 1
+          maxLength: 500
+        urgency:
+          $ref: '#/components/schemas/Urgency'
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        version:
+          type: integer
+          minimum: 1
+          description: Optimistic concurrency counter; send as expected_version on PATCH
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RequestUpdate:
+      type: object
+      required:
+      - id
+      - request_id
+      - old_status
+      - new_status
+      - changed_at
+      - source
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        old_status:
+          oneOf:
+          - $ref: '#/components/schemas/RequestStatus'
+          - type: 'null'
+        new_status:
+          $ref: '#/components/schemas/RequestStatus'
+        changed_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+    ReliefRequestDetail:
+      allOf:
+      - $ref: '#/components/schemas/ReliefRequest'
+      - type: object
+        required:
+        - history
+        properties:
+          history:
+            type: array
+            items:
+              $ref: '#/components/schemas/RequestUpdate'
+    ReliefRequestPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReliefRequest'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    InstancePage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Instance'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    PolicyVersionPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyVersion'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    OperationPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Operation'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    IncidentPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    BackupPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Backup'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    TestRunPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TestRun'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    OperationAccepted:
+      type: object
+      required:
+      - operation_id
+      - status
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: queued
+    Operation:
+      type: object
+      required:
+      - id
+      - kind
+      - status
+      - policy_version
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/OperationKind'
+        status:
+          $ref: '#/components/schemas/OperationStatus'
+        policy_version:
+          type: integer
+          minimum: 1
+        current_step:
+          type:
+          - string
+          - 'null'
+        stackstorm_execution_id:
+          type:
+          - string
+          - 'null'
+        observed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        result:
+          type:
+          - object
+          - 'null'
+    OperationCommand:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - activate_standby
+          - scale_out
+          - scale_in
+          - standby_repair
+          - reconcile
+          - failback
+        reason:
+          type: string
+          maxLength: 1000
+    PolicyConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+      - schema_version
+      - capacity
+      - scale_out
+      - scale_in
+      - health
+      - failover
+      - failback
+      - provisioning
+      - coordination
+      - monitoring
+      - alerts
+      - backup
+      - recovery
+      - demo
+      - runtime
+      - maintenance
+      properties:
+        schema_version:
+          const: 1
+          description: Immutable; bumped only by a migration
+        capacity:
+          type: object
+          additionalProperties: false
+          required:
+          - max_cloud_vms_per_provider
+          - primary_first
+          - warm_provider
+          - warm_instances
+          - elastic_provider_strategy
+          - count_pending_and_uncertain_resources
+          properties:
+            max_cloud_vms_per_provider:
+              type: object
+              additionalProperties: false
+              required:
+              - digitalocean
+              - linode
+              description: Cloud application VM cap per provider, including warm, provisioning, uncertain
+                and cleanup-pending resources. The ceiling of 5 per provider is immutable. Lowering below
+                the reserved count is a pending transition.
+              properties:
+                digitalocean:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+                linode:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+            primary_first:
+              const: true
+            warm_provider:
+              $ref: '#/components/schemas/CloudProvider'
+            warm_instances:
+              const: 1
+            elastic_provider_strategy:
+              const: alternate
+              description: Alternate DigitalOcean and Linode, skipping a provider that is at its cap or
+                unavailable
+            count_pending_and_uncertain_resources:
+              const: true
+        scale_out:
+          type: object
+          additionalProperties: false
+          required:
+          - cpu_percent
+          - sustained_seconds
+          - cooldown_seconds
+          - step_vms
+          - activate_warm_standby_first
+          - cpu_aggregation
+          properties:
+            cpu_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 100
+            sustained_seconds:
+              type: integer
+              minimum: 5
+              maximum: 3600
+            cooldown_seconds:
+              type: integer
+              minimum: 0
+              maximum: 3600
+            activate_warm_standby_first:
+              type: boolean
+            cpu_aggregation:
+              const: vcpu_weighted_active_fleet
+            step_vms:
+              const: 1
+              description: VMs added per step, then cooldown and re-evaluation
+        scale_in:
+          type: object
+          additionalProperties: false
+          required:
+          - cpu_percent
+          - sustained_seconds
+          - drain_timeout_seconds
+          - drain_timeout_action
+          - require_stable_primary
+          - verify_remaining_capacity
+          - protect_warm_slot
+          - step_vms
+          properties:
+            cpu_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 100
+            sustained_seconds:
+              type: integer
+              minimum: 30
+              maximum: 7200
+            drain_timeout_seconds:
+              type: integer
+              minimum: 5
+              maximum: 600
+            drain_timeout_action:
+              const: pause_and_raise_incident
+            require_stable_primary:
+              const: true
+            verify_remaining_capacity:
+              const: true
+            protect_warm_slot:
+              const: true
+            step_vms:
+              const: 1
+        health:
+          type: object
+          additionalProperties: false
+          required:
+          - interval_seconds
+          - consecutive_failures
+          - consecutive_successes
+          - timeout_seconds
+          properties:
+            interval_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            consecutive_failures:
+              type: integer
+              minimum: 1
+              maximum: 10
+            consecutive_successes:
+              type: integer
+              minimum: 1
+              maximum: 10
+            timeout_seconds:
+              type: integer
+              minimum: 1
+              maximum: 30
+        failover:
+          type: object
+          additionalProperties: false
+          required:
+          - ensure_elastic_instance_after_primary_failure
+          - elastic_instances_after_primary_failure
+          - share_cloud_traffic_when_elastic_ready
+          properties:
+            ensure_elastic_instance_after_primary_failure:
+              type: boolean
+            elastic_instances_after_primary_failure:
+              type: integer
+              minimum: 1
+              maximum: 1
+            share_cloud_traffic_when_elastic_ready:
+              type: boolean
+        failback:
+          type: object
+          additionalProperties: false
+          required:
+          - automatic
+          - stable_seconds
+          - primary_traffic_steps_percent
+          - step_observation_seconds
+          - final_step_observation_seconds
+          - gate_consecutive_health_successes
+          - gate_max_5xx_ratio
+          - gate_max_p95_ratio_to_baseline
+          - gate_max_primary_cpu_percent
+          - reverse_on_regression
+          properties:
+            automatic:
+              type: boolean
+            stable_seconds:
+              type: integer
+              minimum: 10
+              maximum: 3600
+            primary_traffic_steps_percent:
+              type: array
+              minItems: 1
+              maxItems: 6
+              contains:
+                const: 100
+              items:
+                type: integer
+                minimum: 1
+                maximum: 100
+            step_observation_seconds:
+              type: integer
+              minimum: 5
+              maximum: 600
+            reverse_on_regression:
+              const: true
+            final_step_observation_seconds:
+              type: integer
+              minimum: 5
+              maximum: 600
+            gate_consecutive_health_successes:
+              type: integer
+              minimum: 1
+              maximum: 10
+            gate_max_5xx_ratio:
+              type: number
+              minimum: 0
+              maximum: 1
+            gate_max_p95_ratio_to_baseline:
+              type: number
+              minimum: 1
+              maximum: 10
+            gate_max_primary_cpu_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 100
+        provisioning:
+          type: object
+          additionalProperties: false
+          required:
+          - readiness_checkpoints_seconds
+          - readiness_deadline_seconds
+          - admit_early_when_ready
+          - retries_per_provider
+          - reconcile_before_retry
+          - stop_and_raise_incident_after_exhaustion
+          - hold_slot_on_uncertain_existence
+          properties:
+            readiness_checkpoints_seconds:
+              type: array
+              minItems: 1
+              maxItems: 6
+              items:
+                type: integer
+                minimum: 30
+                maximum: 1800
+            readiness_deadline_seconds:
+              type: integer
+              minimum: 30
+              maximum: 1800
+            admit_early_when_ready:
+              const: true
+            retries_per_provider:
+              type: integer
+              minimum: 0
+              maximum: 3
+            reconcile_before_retry:
+              const: true
+            stop_and_raise_incident_after_exhaustion:
+              const: true
+            hold_slot_on_uncertain_existence:
+              const: true
+        coordination:
+          type: object
+          additionalProperties: false
+          required:
+          - capacity_mutations_per_application
+          - reconcile_interval_seconds
+          - lease_seconds
+          - lease_renewal_seconds
+          - recheck_after_lock
+          properties:
+            capacity_mutations_per_application:
+              const: 1
+            reconcile_interval_seconds:
+              type: integer
+              minimum: 15
+              maximum: 3600
+            lease_seconds:
+              type: integer
+              minimum: 15
+              maximum: 600
+            lease_renewal_seconds:
+              type: integer
+              minimum: 5
+              maximum: 300
+            recheck_after_lock:
+              const: true
+        monitoring:
+          type: object
+          additionalProperties: false
+          required:
+          - scrape_seconds
+          - evaluation_seconds
+          - cpu_window_seconds
+          - stale_after_seconds
+          - prometheus_retention_days
+          - exclude_idle_standby_and_support_hosts
+          properties:
+            scrape_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            evaluation_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            cpu_window_seconds:
+              type: integer
+              minimum: 10
+              maximum: 300
+            stale_after_seconds:
+              type: integer
+              minimum: 10
+              maximum: 600
+            prometheus_retention_days:
+              type: integer
+              minimum: 1
+              maximum: 15
+            exclude_idle_standby_and_support_hosts:
+              const: true
+        alerts:
+          type: object
+          additionalProperties: false
+          required:
+          - automation_group_wait_seconds
+          - group_interval_seconds
+          - repeat_interval_seconds
+          - notifications
+          properties:
+            automation_group_wait_seconds:
+              type: integer
+              minimum: 0
+              maximum: 60
+            group_interval_seconds:
+              type: integer
+              minimum: 1
+              maximum: 600
+            repeat_interval_seconds:
+              type: integer
+              minimum: 5
+              maximum: 3600
+            notifications:
+              type: array
+              uniqueItems: true
+              items:
+                enum:
+                - dashboard
+        backup:
+          type: object
+          additionalProperties: false
+          required:
+          - mechanism
+          - schema
+          - cron
+          - timezone
+          - retention_days
+          - storage
+          - allow_overlap
+          - retries
+          - retry_delay_seconds
+          - preserve_active_recovery_artifacts
+          - verify
+          properties:
+            mechanism:
+              const: pg_dump_custom
+            schema:
+              const: app
+            cron:
+              type: string
+              maxLength: 64
+              pattern: ^(\S+\s+){4}\S+$
+            timezone:
+              const: UTC
+            retention_days:
+              type: integer
+              minimum: 1
+              maximum: 365
+            storage:
+              const: management_persistent_volume
+            allow_overlap:
+              const: false
+            retries:
+              type: integer
+              minimum: 0
+              maximum: 3
+            retry_delay_seconds:
+              type: integer
+              minimum: 10
+              maximum: 3600
+            preserve_active_recovery_artifacts:
+              const: true
+            verify:
+              type: object
+              additionalProperties: false
+              required:
+              - enabled
+              - after_capture
+              - timeout_seconds
+              properties:
+                enabled:
+                  type: boolean
+                after_capture:
+                  type: boolean
+                timeout_seconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 3600
+        recovery:
+          type: object
+          additionalProperties: false
+          required:
+          - operator_started_only
+          - require_verified_backup
+          - max_verification_age_days
+          - verify_isolated_restore_first
+          - global_app_maintenance
+          - safety_dump_before_live_restore
+          - restore_schema
+          - preserve_schema
+          - rollback_attempts
+          - keep_maintenance_on_unverified_failure
+          properties:
+            operator_started_only:
+              const: true
+            verify_isolated_restore_first:
+              const: true
+            global_app_maintenance:
+              const: true
+            safety_dump_before_live_restore:
+              const: true
+            restore_schema:
+              const: app
+            preserve_schema:
+              const: ops
+            rollback_attempts:
+              type: integer
+              minimum: 0
+              maximum: 1
+            keep_maintenance_on_unverified_failure:
+              const: true
+            require_verified_backup:
+              const: true
+            max_verification_age_days:
+              type: integer
+              minimum: 1
+              maximum: 30
+        demo:
+          type: object
+          additionalProperties: false
+          required:
+          - default_rate_rps
+          - max_rate_rps
+          - max_duration_seconds
+          - default_work_ms
+          - max_work_ms
+          - max_cpu_workers_per_instance
+          - max_queued_work_items
+          properties:
+            default_rate_rps:
+              type: integer
+              minimum: 1
+              maximum: 200
+            max_rate_rps:
+              type: integer
+              minimum: 1
+              maximum: 200
+            max_duration_seconds:
+              type: integer
+              minimum: 1
+              maximum: 600
+            default_work_ms:
+              type: integer
+              minimum: 1
+              maximum: 250
+            max_work_ms:
+              type: integer
+              minimum: 1
+              maximum: 250
+            max_cpu_workers_per_instance:
+              type: integer
+              minimum: 1
+              maximum: 1
+            max_queued_work_items:
+              type: integer
+              minimum: 1
+              maximum: 256
+        runtime:
+          type: object
+          additionalProperties: false
+          required:
+          - app_db_pool_max
+          - api_idempotency_retention_hours
+          - custom_login
+          - firewall_automation
+          - vpn_required
+          - supabase_keepalive_interval_hours
+          properties:
+            app_db_pool_max:
+              type: integer
+              minimum: 1
+              maximum: 5
+            api_idempotency_retention_hours:
+              type: integer
+              minimum: 1
+              maximum: 168
+            custom_login:
+              const: false
+            firewall_automation:
+              const: false
+            vpn_required:
+              const: false
+            supabase_keepalive_interval_hours:
+              type: integer
+              minimum: 1
+              maximum: 24
+        maintenance:
+          type: object
+          additionalProperties: false
+          required:
+          - retry_after_seconds
+          properties:
+            retry_after_seconds:
+              type: integer
+              minimum: 1
+              maximum: 3600
+      description: Complete typed policy. Unknown keys are rejected. Secrets, paths and commands are not
+        accepted.
+    PolicyPatch:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - changes
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
+        changes:
+          $ref: '#/components/schemas/PolicyConfigurationPatch'
+    PolicyConfigurationPatch:
+      type: object
+      description: 'Deep-partial policy: any subset of PolicyConfiguration groups and keys; no nested required. Merged into the active policy; the merged document is validated against PolicyConfiguration. Secrets, paths and arbitrary commands are not accepted.'
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: 1
+        capacity:
+          type: object
+          additionalProperties: false
+          properties:
+            max_cloud_vms_per_provider:
+              type: object
+              additionalProperties: false
+              description: Cloud application VM cap per provider, including warm, provisioning, uncertain
+                and cleanup-pending resources. The ceiling of 5 per provider is immutable. Lowering
+                below the reserved count is a pending transition.
+              properties:
+                digitalocean:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+                linode:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+            primary_first:
+              const: true
+            warm_provider:
+              $ref: '#/components/schemas/CloudProvider'
+            warm_instances:
+              const: 1
+            elastic_provider_strategy:
+              const: alternate
+              description: Alternate DigitalOcean and Linode, skipping a provider that is at its cap
+                or unavailable
+            count_pending_and_uncertain_resources:
+              const: true
+        scale_out:
+          type: object
+          additionalProperties: false
+          properties:
+            cpu_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 100
+            sustained_seconds:
+              type: integer
+              minimum: 5
+              maximum: 3600
+            cooldown_seconds:
+              type: integer
+              minimum: 0
+              maximum: 3600
+            activate_warm_standby_first:
+              type: boolean
+            cpu_aggregation:
+              const: vcpu_weighted_active_fleet
+            step_vms:
+              const: 1
+              description: VMs added per step, then cooldown and re-evaluation
+        scale_in:
+          type: object
+          additionalProperties: false
+          properties:
+            cpu_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 100
+            sustained_seconds:
+              type: integer
+              minimum: 30
+              maximum: 7200
+            drain_timeout_seconds:
+              type: integer
+              minimum: 5
+              maximum: 600
+            drain_timeout_action:
+              const: pause_and_raise_incident
+            require_stable_primary:
+              const: true
+            verify_remaining_capacity:
+              const: true
+            protect_warm_slot:
+              const: true
+            step_vms:
+              const: 1
+        health:
+          type: object
+          additionalProperties: false
+          properties:
+            interval_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            consecutive_failures:
+              type: integer
+              minimum: 1
+              maximum: 10
+            consecutive_successes:
+              type: integer
+              minimum: 1
+              maximum: 10
+            timeout_seconds:
+              type: integer
+              minimum: 1
+              maximum: 30
+        failover:
+          type: object
+          additionalProperties: false
+          properties:
+            ensure_elastic_instance_after_primary_failure:
+              type: boolean
+            elastic_instances_after_primary_failure:
+              type: integer
+              minimum: 1
+              maximum: 1
+            share_cloud_traffic_when_elastic_ready:
+              type: boolean
+        failback:
+          type: object
+          additionalProperties: false
+          properties:
+            automatic:
+              type: boolean
+            stable_seconds:
+              type: integer
+              minimum: 10
+              maximum: 3600
+            primary_traffic_steps_percent:
+              type: array
+              minItems: 1
+              maxItems: 6
+              contains:
+                const: 100
+              items:
+                type: integer
+                minimum: 1
+                maximum: 100
+            step_observation_seconds:
+              type: integer
+              minimum: 5
+              maximum: 600
+            reverse_on_regression:
+              const: true
+            final_step_observation_seconds:
+              type: integer
+              minimum: 5
+              maximum: 600
+            gate_consecutive_health_successes:
+              type: integer
+              minimum: 1
+              maximum: 10
+            gate_max_5xx_ratio:
+              type: number
+              minimum: 0
+              maximum: 1
+            gate_max_p95_ratio_to_baseline:
+              type: number
+              minimum: 1
+              maximum: 10
+            gate_max_primary_cpu_percent:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 100
+        provisioning:
+          type: object
+          additionalProperties: false
+          properties:
+            readiness_checkpoints_seconds:
+              type: array
+              minItems: 1
+              maxItems: 6
+              items:
+                type: integer
+                minimum: 30
+                maximum: 1800
+            readiness_deadline_seconds:
+              type: integer
+              minimum: 30
+              maximum: 1800
+            admit_early_when_ready:
+              const: true
+            retries_per_provider:
+              type: integer
+              minimum: 0
+              maximum: 3
+            reconcile_before_retry:
+              const: true
+            stop_and_raise_incident_after_exhaustion:
+              const: true
+            hold_slot_on_uncertain_existence:
+              const: true
+        coordination:
+          type: object
+          additionalProperties: false
+          properties:
+            capacity_mutations_per_application:
+              const: 1
+            reconcile_interval_seconds:
+              type: integer
+              minimum: 15
+              maximum: 3600
+            lease_seconds:
+              type: integer
+              minimum: 15
+              maximum: 600
+            lease_renewal_seconds:
+              type: integer
+              minimum: 5
+              maximum: 300
+            recheck_after_lock:
+              const: true
+        monitoring:
+          type: object
+          additionalProperties: false
+          properties:
+            scrape_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            evaluation_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            cpu_window_seconds:
+              type: integer
+              minimum: 10
+              maximum: 300
+            stale_after_seconds:
+              type: integer
+              minimum: 10
+              maximum: 600
+            prometheus_retention_days:
+              type: integer
+              minimum: 1
+              maximum: 15
+            exclude_idle_standby_and_support_hosts:
+              const: true
+        alerts:
+          type: object
+          additionalProperties: false
+          properties:
+            automation_group_wait_seconds:
+              type: integer
+              minimum: 0
+              maximum: 60
+            group_interval_seconds:
+              type: integer
+              minimum: 1
+              maximum: 600
+            repeat_interval_seconds:
+              type: integer
+              minimum: 5
+              maximum: 3600
+            notifications:
+              type: array
+              uniqueItems: true
+              items:
+                enum:
+                - dashboard
+        backup:
+          type: object
+          additionalProperties: false
+          properties:
+            mechanism:
+              const: pg_dump_custom
+            schema:
+              const: app
+            cron:
+              type: string
+              maxLength: 64
+              pattern: ^(\S+\s+){4}\S+$
+            timezone:
+              const: UTC
+            retention_days:
+              type: integer
+              minimum: 1
+              maximum: 365
+            storage:
+              const: management_persistent_volume
+            allow_overlap:
+              const: false
+            retries:
+              type: integer
+              minimum: 0
+              maximum: 3
+            retry_delay_seconds:
+              type: integer
+              minimum: 10
+              maximum: 3600
+            preserve_active_recovery_artifacts:
+              const: true
+            verify:
+              type: object
+              additionalProperties: false
+              properties:
+                enabled:
+                  type: boolean
+                after_capture:
+                  type: boolean
+                timeout_seconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 3600
+        recovery:
+          type: object
+          additionalProperties: false
+          properties:
+            operator_started_only:
+              const: true
+            verify_isolated_restore_first:
+              const: true
+            global_app_maintenance:
+              const: true
+            safety_dump_before_live_restore:
+              const: true
+            restore_schema:
+              const: app
+            preserve_schema:
+              const: ops
+            rollback_attempts:
+              type: integer
+              minimum: 0
+              maximum: 1
+            keep_maintenance_on_unverified_failure:
+              const: true
+            require_verified_backup:
+              const: true
+            max_verification_age_days:
+              type: integer
+              minimum: 1
+              maximum: 30
+        demo:
+          type: object
+          additionalProperties: false
+          properties:
+            default_rate_rps:
+              type: integer
+              minimum: 1
+              maximum: 200
+            max_rate_rps:
+              type: integer
+              minimum: 1
+              maximum: 200
+            max_duration_seconds:
+              type: integer
+              minimum: 1
+              maximum: 600
+            default_work_ms:
+              type: integer
+              minimum: 1
+              maximum: 250
+            max_work_ms:
+              type: integer
+              minimum: 1
+              maximum: 250
+            max_cpu_workers_per_instance:
+              type: integer
+              minimum: 1
+              maximum: 1
+            max_queued_work_items:
+              type: integer
+              minimum: 1
+              maximum: 256
+        runtime:
+          type: object
+          additionalProperties: false
+          properties:
+            app_db_pool_max:
+              type: integer
+              minimum: 1
+              maximum: 5
+            api_idempotency_retention_hours:
+              type: integer
+              minimum: 1
+              maximum: 168
+            custom_login:
+              const: false
+            firewall_automation:
+              const: false
+            vpn_required:
+              const: false
+            supabase_keepalive_interval_hours:
+              type: integer
+              minimum: 1
+              maximum: 24
+        maintenance:
+          type: object
+          additionalProperties: false
+          properties:
+            retry_after_seconds:
+              type: integer
+              minimum: 1
+              maximum: 3600
+    PolicyVersion:
+      type: object
+      required:
+      - version
+      - status
+      - configuration
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/PolicyStatus'
+        activation_phase:
+          $ref: '#/components/schemas/ActivationPhase'
+        configuration:
+          $ref: '#/components/schemas/PolicyConfiguration'
+    RestoreInput:
+      type: object
+      additionalProperties: false
+      required:
+      - backup_id
+      properties:
+        backup_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          maxLength: 1000
+    TestRunInput:
+      type: object
+      additionalProperties: false
+      required:
+      - scenario
+      - rate_rps
+      - duration_seconds
+      properties:
+        scenario:
+          type: string
+          enum:
+          - smoke
+          - baseline
+          - compute_pressure
+          - sustained_surge
+          - recovery
+        rate_rps:
+          type: integer
+          minimum: 1
+          maximum: 200
+        duration_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+    TestRun:
+      type: object
+      required:
+      - id
+      - scenario
+      - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        operation_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        scenario:
+          type: string
+        rate_rps:
+          type: integer
+        duration_seconds:
+          type: integer
+        status:
+          $ref: '#/components/schemas/OperationStatus'
+        started_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        finished_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        summary:
+          type:
+          - object
+          - 'null'
+          description: 'Bounded k6 summary: p95_ms, error_rate, requests'
+    DemoWorkInput:
+      type: object
+      additionalProperties: false
+      properties:
+        work_ms:
+          type: integer
+          minimum: 1
+          maximum: 250
+          default: 100
+    Instance:
+      type: object
+      required:
+      - id
+      - role
+      - provider
+      - lifecycle_state
+      - simulated
+      properties:
+        id:
+          type: string
+          format: uuid
+        simulated:
+          type: boolean
+          description: True for inventory created by a local simulation adapter; never a real VM and
+            never counted in capacity.observed.
+        role:
+          type: string
+          enum:
+          - primary
+          - warm
+          - elastic
+        provider:
+          $ref: '#/components/schemas/Provider'
+        slot:
+          type:
+          - string
+          - 'null'
+        public_ip:
+          type:
+          - string
+          - 'null'
+          description: Redacted (null) in public responses
+        provider_resource_id:
+          type:
+          - string
+          - 'null'
+          description: Redacted (null) in public responses
+        vcpu:
+          type: integer
+          minimum: 1
+        memory_mb:
+          type: integer
+          minimum: 1
+        last_seen_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        routing_weight:
+          type: integer
+          minimum: 0
+          maximum: 256
+        slot_state:
+          $ref: '#/components/schemas/SlotState'
+        lifecycle_state:
+          $ref: '#/components/schemas/InstanceLifecycle'
+        health_state:
+          type: string
+        routing_mode:
+          $ref: '#/components/schemas/RoutingMode'
+        image_digest:
+          type:
+          - string
+          - 'null'
+    Backup:
+      type: object
+      required:
+      - id
+      - schema
+      - capture_started_at
+      - capture_status
+      - verification_status
+      properties:
+        id:
+          type: string
+          format: uuid
+        schema:
+          type: string
+          const: app
+        capture_started_at:
+          type: string
+          format: date-time
+        capture_finished_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        bytes:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        checksum:
+          type:
+          - string
+          - 'null'
+        capture_status:
+          $ref: '#/components/schemas/CaptureStatus'
+        verification_status:
+          $ref: '#/components/schemas/VerificationStatus'
+        retention_until:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        expired_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        verified_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When the last successful verification finished; null if never verified. A restore requires this to be within the last 7 days (recovery.max_verification_age_days).
+        is_safety_backup:
+          type: boolean
+          description: true for the automatic safety dump taken before a live restore
+        error_code:
+          type:
+          - string
+          - 'null'
+        error_message:
+          type:
+          - string
+          - 'null'
+    IntegrationStatus:
+      type: object
+      required:
+      - observed_at
+      - state
+      properties:
+        observed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        state:
+          $ref: '#/components/schemas/IntegrationState'
+        detail:
+          type: string
+    Overview:
+      type: object
+      required:
+      - observed_at
+      - active_policy_version
+      - capacity
+      - integrations
+      - incidents
+      description: Desired and observed capacity, freshness, active policy, incident summary and backup
+        age.
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        active_policy_version:
+          type: integer
+          minimum: 1
+        capacity:
+          type: object
+          required:
+          - simulated_count
+          properties:
+            desired:
+              type: object
+              additionalProperties:
+                type: integer
+            observed:
+              type: object
+              description: Counts only real (not simulated) instances and the slots they occupy.
+              additionalProperties:
+                type: integer
+            simulated_count:
+              type: integer
+              minimum: 0
+              description: Non-deleted simulated instances, reported apart from observed.
+        integrations:
+          type: object
+          description: Keyed by integration name (haproxy, prometheus, stackstorm, supabase, providers)
+          additionalProperties:
+            $ref: '#/components/schemas/IntegrationStatus'
+        incidents:
+          type: object
+          properties:
+            open:
+              type: integer
+              minimum: 0
+            critical:
+              type: integer
+              minimum: 0
+        latest_backup:
+          oneOf:
+          - type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              capture_finished_at:
+                type: string
+                format: date-time
+              verification_status:
+                $ref: '#/components/schemas/VerificationStatus'
+              age_seconds:
+                type: integer
+          - type: 'null'
+    Incident:
+      type: object
+      required:
+      - id
+      - fingerprint
+      - severity
+      - state
+      - opened_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        fingerprint:
+          type: string
+          maxLength: 256
+        severity:
+          $ref: '#/components/schemas/Severity'
+        state:
+          $ref: '#/components/schemas/IncidentState'
+        source:
+          type: string
+        description:
+          type: string
+        affected_resources:
+          type: array
+          items:
+            type: string
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type:
+          - string
+          - 'null'
+          format: date-time

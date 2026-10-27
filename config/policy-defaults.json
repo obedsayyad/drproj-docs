@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "capacity": {
+    "max_cloud_vms_per_provider": {
+      "digitalocean": 5,
+      "linode": 5
+    },
+    "primary_first": true,
+    "warm_provider": "digitalocean",
+    "warm_instances": 1,
+    "elastic_provider_strategy": "alternate",
+    "count_pending_and_uncertain_resources": true
+  },
+  "scale_out": {
+    "cpu_percent": 60,
+    "sustained_seconds": 30,
+    "cooldown_seconds": 60,
+    "step_vms": 1,
+    "activate_warm_standby_first": true,
+    "cpu_aggregation": "vcpu_weighted_active_fleet"
+  },
+  "scale_in": {
+    "cpu_percent": 20,
+    "sustained_seconds": 120,
+    "drain_timeout_seconds": 60,
+    "drain_timeout_action": "pause_and_raise_incident",
+    "require_stable_primary": true,
+    "verify_remaining_capacity": true,
+    "protect_warm_slot": true,
+    "step_vms": 1
+  },
+  "health": {
+    "interval_seconds": 10,
+    "consecutive_failures": 3,
+    "consecutive_successes": 6,
+    "timeout_seconds": 4
+  },
+  "failover": {
+    "ensure_elastic_instance_after_primary_failure": true,
+    "elastic_instances_after_primary_failure": 1,
+    "share_cloud_traffic_when_elastic_ready": true
+  },
+  "failback": {
+    "automatic": true,
+    "stable_seconds": 60,
+    "primary_traffic_steps_percent": [
+      10,
+      50,
+      100
+    ],
+    "step_observation_seconds": 60,
+    "final_step_observation_seconds": 120,
+    "gate_consecutive_health_successes": 2,
+    "gate_max_5xx_ratio": 0.01,
+    "gate_max_p95_ratio_to_baseline": 1.5,
+    "gate_max_primary_cpu_percent": 50,
+    "reverse_on_regression": true
+  },
+  "provisioning": {
+    "readiness_checkpoints_seconds": [
+      240,
+      360,
+      480
+    ],
+    "readiness_deadline_seconds": 480,
+    "admit_early_when_ready": true,
+    "retries_per_provider": 1,
+    "reconcile_before_retry": true,
+    "stop_and_raise_incident_after_exhaustion": true,
+    "hold_slot_on_uncertain_existence": true
+  },
+  "coordination": {
+    "capacity_mutations_per_application": 1,
+    "reconcile_interval_seconds": 60,
+    "lease_seconds": 120,
+    "lease_renewal_seconds": 20,
+    "recheck_after_lock": true
+  },
+  "monitoring": {
+    "scrape_seconds": 5,
+    "evaluation_seconds": 5,
+    "cpu_window_seconds": 30,
+    "stale_after_seconds": 30,
+    "prometheus_retention_days": 3,
+    "exclude_idle_standby_and_support_hosts": true
+  },
+  "alerts": {
+    "automation_group_wait_seconds": 0,
+    "group_interval_seconds": 5,
+    "repeat_interval_seconds": 60,
+    "notifications": [
+      "dashboard"
+    ]
+  },
+  "backup": {
+    "mechanism": "pg_dump_custom",
+    "schema": "app",
+    "cron": "0 0 * * *",
+    "timezone": "UTC",
+    "retention_days": 30,
+    "storage": "management_persistent_volume",
+    "allow_overlap": false,
+    "retries": 1,
+    "retry_delay_seconds": 60,
+    "preserve_active_recovery_artifacts": true,
+    "verify": {
+      "enabled": true,
+      "after_capture": true,
+      "timeout_seconds": 900
+    }
+  },
+  "recovery": {
+    "operator_started_only": true,
+    "require_verified_backup": true,
+    "max_verification_age_days": 7,
+    "verify_isolated_restore_first": true,
+    "global_app_maintenance": true,
+    "safety_dump_before_live_restore": true,
+    "restore_schema": "app",
+    "preserve_schema": "ops",
+    "rollback_attempts": 1,
+    "keep_maintenance_on_unverified_failure": true
+  },
+  "maintenance": {
+    "retry_after_seconds": 60
+  },
+  "demo": {
+    "default_rate_rps": 10,
+    "max_rate_rps": 200,
+    "max_duration_seconds": 600,
+    "default_work_ms": 100,
+    "max_work_ms": 250,
+    "max_cpu_workers_per_instance": 1,
+    "max_queued_work_items": 32
+  },
+  "runtime": {
+    "app_db_pool_max": 2,
+    "api_idempotency_retention_hours": 24,
+    "custom_login": false,
+    "firewall_automation": false,
+    "vpn_required": false,
+    "supabase_keepalive_interval_hours": 6
+  }
+}
