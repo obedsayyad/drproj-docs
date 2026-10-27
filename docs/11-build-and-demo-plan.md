@@ -110,7 +110,7 @@ collageDRproject/
 └─ drproj-mgmt/   management API and dashboard; later infra, automation, monitoring, k6
 ```
 
-Each code repo includes `drproj-docs` at `docs/`. Until the repositories are pushed, `docs` is a local symlink to `../drproj-docs`; after pushing, replace it with `git submodule add https://github.com/obedsayyad/drproj-docs docs`. Run pnpm commands inside a repo folder.
+Each code repo includes `drproj-docs` at `docs/`. `docs` is a git submodule (`git submodule add https://github.com/obedsayyad/drproj-docs docs`); after cloning run `git submodule update --init`. Run pnpm commands inside a repo folder.
 
 ### Branches and CI
 

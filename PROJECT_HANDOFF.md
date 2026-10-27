@@ -1673,7 +1673,7 @@ collageDRproject/
 └─ drproj-mgmt/   management API and dashboard; later infra, automation, monitoring, k6
 ```
 
-Each code repo includes `drproj-docs` at `docs/`. Until the repositories are pushed, `docs` is a local symlink to `../drproj-docs`; after pushing, replace it with `git submodule add https://github.com/obedsayyad/drproj-docs docs`. Run pnpm commands inside a repo folder.
+Each code repo includes `drproj-docs` at `docs/`. `docs` is a git submodule (`git submodule add https://github.com/obedsayyad/drproj-docs docs`); after cloning run `git submodule update --init`. Run pnpm commands inside a repo folder.
 
 ### Branches and CI
 
@@ -1807,7 +1807,7 @@ The future implementation will need:
 - Resolve 1-vCPU/1-GB provider size IDs and supported OS images from their APIs.
 - Use suitable nearby regions for the demo, preferably appropriate to the user's India location when available; actual account/API availability is authoritative.
 - Supabase project reference and appropriate runtime/migration/dump connection credentials.
-- GitHub namespace and GHCR image names are decided (`obedsayyad`, public; see docs/11-build-and-demo-plan.md, GitHub repositories). Registry pull credentials are optional because the images are public.
+- GitHub namespace and GHCR image names are decided and recorded in `registry` in the example and local inputs: `registry.namespace` = `obedsayyad`, `registry.images` = `relief: drproj-relief`, `operations: drproj-operations`, `runner: drproj-runner` (the legacy `registry.repository` stays null; see docs/11-build-and-demo-plan.md, GitHub repositories). Registry pull credentials are optional because the images are public.
 - SSH public/private key references (including the key installed on cloud VMs) and deployment runner access. Per provider, `cloud_application.<provider>.ssh_key_id_reference` names the key already registered in that account (DigitalOcean key id or fingerprint; Linode SSH-key label).
 - `cloud_application.terraform.tf_state_dir` (default `/var/lib/drproj/terraform`, mode 0700), and the pinned `versions.terraform_sha256_linux_amd64`, `terraform_provider_digitalocean`, `terraform_provider_linode`, `ansible_collections`, `tflint` and `bats`.
 - Ports (8443, 9100, 8404), the backend TLS trust bundle reference, an ACME staging flag, and the restore connection reference.
