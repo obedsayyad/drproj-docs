@@ -149,3 +149,16 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 ## Releases
 
 CI builds/tests/publishes a pinned image. Roll out compatible releases to the warm instance first, verify, then update the primary and any active elastic instances with controlled routing. Record revision and rollback image. Run database migrations separately; do not infer that image rollback can undo a destructive migration.
+
+### Release log (CI-1)
+
+CI publishes on every push to `main` (`drproj-app` and `drproj-mgmt` `.github/workflows/ci.yml`): tests first, then a linux/amd64 build pushed as `ghcr.io/obedsayyad/<image>:<full commit sha>` and `:main`, with the manifest digest in the job summary. Packages are public (they inherit the public repository through the `org.opencontainers.image.source` label; an anonymous pull token works). Deployments pin the digest recorded in `registry.*_image_digest` (`config/deployment-inputs.example.json` and the local copy, also synced to `/opt/drproj/ansible/deployment-inputs.local.json` on management). CI never deploys. The runner image is smoke-tested with `docker run --network none ... terraform init -backend=false` in both slot roots before it is pushed, so provider resolution from the offline mirror is proven on native amd64 (closes OPEN-P5.2-1).
+
+| Image | Source commit | Digest | Rollback |
+|---|---|---|---|
+| `ghcr.io/obedsayyad/drproj-relief` | `drproj-app` 71ba435 | `sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea` | none yet (first publish) |
+| `ghcr.io/obedsayyad/drproj-operations` | `drproj-mgmt` e0647d7 | `sha256:b12ee869712a8176c659d2666846c3ff47ede30d579949220b780fcadafa546b` | none yet (first publish) |
+| `ghcr.io/obedsayyad/drproj-runner` | `drproj-mgmt` e0647d7 | `sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7` | none yet (first publish) |
+
+When a later push publishes a new digest, copy the previous digest into the Rollback column before replacing it in the deployment inputs. Pushes that change only the `docs` submodule rebuild an image with the same contents but a new digest (revision label); record the digest you actually deploy.
+
