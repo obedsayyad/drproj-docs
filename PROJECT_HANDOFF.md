@@ -1283,6 +1283,8 @@ Exact port mappings belong in deployment config. Defaults: public 80/443 on LB a
 
 Secrets live in `.env` files with mode 0600 inside owner-only directories (0700) on the management VM, passed to containers as Docker Compose environment or secrets. They are plaintext at rest (accepted risk, docs/12). Deployment inputs reference them as `env://NAME`.
 
+The management VM's other owner-only directories are the backup directory (`BACKUP_DIR`, `backup.dir` in the deployment inputs, default `/var/backups/drproj`) and the Terraform state root (`TFSTATE_DIR`, `cloud_application.terraform.tf_state_dir`, default `/var/lib/drproj/terraform`); both are mode 0700 with files 0600. The `bootstrap` role (tag `perms_check`) creates them and installs `scripts/check-perms.sh` as `/opt/drproj/scripts/check-perms.sh`; verify with `BACKUP_DIR=/var/backups/drproj TFSTATE_DIR=/var/lib/drproj/terraform /opt/drproj/scripts/check-perms.sh` (exit 1 on any deviation).
+
 Direct-IP access to the application VMs is not blocked (accepted risk, docs/12); maintenance and rate-limit rules are enforced in the app as well as at HAProxy.
 
 ## Resolved images, tags and ports (Phase 3.1)
@@ -1340,7 +1342,7 @@ Daily at 00:00 UTC (05:30 IST), retaining 30 days. Both settings are editable. M
 
 Pin pg_dump, pg_restore and psql, and the restore-test container's Postgres image, to the SAME major version as the Supabase server (`postgres_server_major` in deployment inputs). Verification proves the exact tool and image combination. Use the session pooler (port 5432) connection for dumps; do not expose connection secrets in process output or logs. Keep backup credentials inside the execution environment.
 
-Backups are plain `pg_dump -Fc` custom-format files, stored only on the management VM in a directory with mode 0700 and files with mode 0600. Verification runs automatically after capture and needs no keys.
+Backups are plain `pg_dump -Fc` custom-format files, stored only on the management VM in a directory with mode 0700 and files with mode 0600. The directory is `backup.dir` in the deployment inputs (`BACKUP_DIR`, default `/var/backups/drproj`); `scripts/check-perms.sh` verifies it (docs/08). Verification runs automatically after capture and needs no keys.
 
 ## Backup job
 
@@ -1809,7 +1811,8 @@ The future implementation will need:
 - Supabase project reference and appropriate runtime/migration/dump connection credentials.
 - GitHub namespace and GHCR image names are decided and recorded in `registry` in the example and local inputs: `registry.namespace` = `obedsayyad`, `registry.images` = `relief: drproj-relief`, `operations: drproj-operations`, `runner: drproj-runner` (the legacy `registry.repository` stays null; see docs/11-build-and-demo-plan.md, GitHub repositories). Registry pull credentials are optional because the images are public.
 - SSH public/private key references (including the key installed on cloud VMs) and deployment runner access. Per provider, `cloud_application.<provider>.ssh_key_id_reference` names the key already registered in that account (DigitalOcean key id or fingerprint; Linode SSH-key label).
-- `cloud_application.terraform.tf_state_dir` (default `/var/lib/drproj/terraform`, mode 0700), and the pinned `versions.terraform_sha256_linux_amd64`, `terraform_provider_digitalocean`, `terraform_provider_linode`, `ansible_collections`, `tflint` and `bats`.
+- `backup.dir` (default `/var/backups/drproj`, mode 0700, management VM only; exported as `BACKUP_DIR` for `scripts/check-perms.sh`),
+- `cloud_application.terraform.tf_state_dir` (default `/var/lib/drproj/terraform`, mode 0700; `TFSTATE_DIR` for `scripts/check-perms.sh`), and the pinned `versions.terraform_sha256_linux_amd64`, `terraform_provider_digitalocean`, `terraform_provider_linode`, `ansible_collections`, `tflint` and `bats`.
 - Ports (8443, 9100, 8404), the backend TLS trust bundle reference, an ACME staging flag, and the restore connection reference.
 - Supabase `dump_connection_mode` (`session_pooler`) and `postgres_server_major` (pin pg_dump/pg_restore/psql and the restore-test Postgres image to the same major as the Supabase server).
 - Vercel A-record values once host IPs are known.
@@ -2199,6 +2202,9 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
       "memory_mb": 8192,
       "disk_capacity_gb": null
     }
+  },
+  "backup": {
+    "dir": "/var/backups/drproj"
   },
   "cloud_application": {
     "vcpu": 1,

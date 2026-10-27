@@ -12,7 +12,7 @@ Daily at 00:00 UTC (05:30 IST), retaining 30 days. Both settings are editable. M
 
 Pin pg_dump, pg_restore and psql, and the restore-test container's Postgres image, to the SAME major version as the Supabase server (`postgres_server_major` in deployment inputs). Verification proves the exact tool and image combination. Use the session pooler (port 5432) connection for dumps; do not expose connection secrets in process output or logs. Keep backup credentials inside the execution environment.
 
-Backups are plain `pg_dump -Fc` custom-format files, stored only on the management VM in a directory with mode 0700 and files with mode 0600. Verification runs automatically after capture and needs no keys.
+Backups are plain `pg_dump -Fc` custom-format files, stored only on the management VM in a directory with mode 0700 and files with mode 0600. The directory is `backup.dir` in the deployment inputs (`BACKUP_DIR`, default `/var/backups/drproj`); `scripts/check-perms.sh` verifies it (docs/08). Verification runs automatically after capture and needs no keys.
 
 ## Backup job
 

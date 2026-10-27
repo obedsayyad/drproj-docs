@@ -41,6 +41,9 @@
       "disk_capacity_gb": null
     }
   },
+  "backup": {
+    "dir": "/var/backups/drproj"
+  },
   "cloud_application": {
     "vcpu": 1,
     "memory_mb": 1024,

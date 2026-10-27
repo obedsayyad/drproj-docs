@@ -89,7 +89,8 @@ The future implementation will need:
 - Supabase project reference and appropriate runtime/migration/dump connection credentials.
 - GitHub namespace and GHCR image names are decided and recorded in `registry` in the example and local inputs: `registry.namespace` = `obedsayyad`, `registry.images` = `relief: drproj-relief`, `operations: drproj-operations`, `runner: drproj-runner` (the legacy `registry.repository` stays null; see docs/11-build-and-demo-plan.md, GitHub repositories). Registry pull credentials are optional because the images are public.
 - SSH public/private key references (including the key installed on cloud VMs) and deployment runner access. Per provider, `cloud_application.<provider>.ssh_key_id_reference` names the key already registered in that account (DigitalOcean key id or fingerprint; Linode SSH-key label).
-- `cloud_application.terraform.tf_state_dir` (default `/var/lib/drproj/terraform`, mode 0700), and the pinned `versions.terraform_sha256_linux_amd64`, `terraform_provider_digitalocean`, `terraform_provider_linode`, `ansible_collections`, `tflint` and `bats`.
+- `backup.dir` (default `/var/backups/drproj`, mode 0700, management VM only; exported as `BACKUP_DIR` for `scripts/check-perms.sh`),
+- `cloud_application.terraform.tf_state_dir` (default `/var/lib/drproj/terraform`, mode 0700; `TFSTATE_DIR` for `scripts/check-perms.sh`), and the pinned `versions.terraform_sha256_linux_amd64`, `terraform_provider_digitalocean`, `terraform_provider_linode`, `ansible_collections`, `tflint` and `bats`.
 - Ports (8443, 9100, 8404), the backend TLS trust bundle reference, an ACME staging flag, and the restore connection reference.
 - Supabase `dump_connection_mode` (`session_pooler`) and `postgres_server_major` (pin pg_dump/pg_restore/psql and the restore-test Postgres image to the same major as the Supabase server).
 - Vercel A-record values once host IPs are known.
