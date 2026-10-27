@@ -82,7 +82,7 @@
     "migration_connection_reference": "env://SUPABASE_MIGRATION_URL",
     "restore_connection_reference": "env://SUPABASE_RESTORE_URL",
     "dump_connection_mode": "session_pooler",
-    "postgres_server_major": null
+    "postgres_server_major": 17
   },
   "registry": {
     "host": "ghcr.io",

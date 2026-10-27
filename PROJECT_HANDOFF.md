@@ -1828,6 +1828,7 @@ The future implementation will need:
 - `cloud_application.terraform.tf_state_dir` (default `/var/lib/drproj/terraform`, mode 0700; `TFSTATE_DIR` for `scripts/check-perms.sh`), and the pinned `versions.terraform_sha256_linux_amd64`, `terraform_provider_digitalocean`, `terraform_provider_linode`, `ansible_collections`, `tflint` and `bats`.
 - Ports (8443, 9100, 8404), the backend TLS trust bundle reference, an ACME staging flag, and the restore connection reference.
 - Supabase `dump_connection_mode` (`session_pooler`) and `postgres_server_major` (pin pg_dump/pg_restore/psql and the restore-test Postgres image to the same major as the Supabase server).
+- Supabase facts recorded by DB-1: `supabase.project_ref` = `dhppvnbwxkfrktjkrsqp` (region ap-southeast-1, session pooler `aws-0-ap-southeast-1.pooler.supabase.com:5432`), server PostgreSQL 17.11, so `postgres_server_major` = 17 (restore-test image `postgres:17.x`). Pooler usernames are `<role>.<project_ref>`. The pooler's chain roots at "Supabase Root 2021 CA"; management keeps that public root at `/etc/drproj/ca/supabase-root-2021.crt` for Node (`NODE_EXTRA_CA_CERTS`), so TLS verification stays on. Passwords exist only in `/etc/drproj/secrets/db-<role>.env` (mode 0600, management VM; roles `migration`, `app_runtime`, `ops`, `backup`, `restore`, `automation`), never in repositories, inputs files, evidence or logs. Login role `restore` is a member of `dr_restore`, which owns schema `app`; the Supabase `postgres` user is not a true superuser (`rolsuper` = f) but has CREATEROLE, which is enough.
 - Vercel A-record values once host IPs are known.
 - ACME account contact email and compatible pinned tool/container versions.
 
@@ -2169,6 +2170,20 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
 8. **Cloud VM first contact (user switch).** `app.yml` bootstraps cloud VMs in its own first play, connecting as the Terraform-provisioned user (`cloud_first_contact_user`, default `root`, override `CLOUD_VM_SSH_USER`) with the cloud key (`CLOUD_VM_SSH_KEY_FILE`). That play creates `drproj` (cloud VMs only; fixed hosts stay root), copies the first-contact user's `authorized_keys` to it (Terraform already installed the key, so no `.pub` file is read or mounted), and does not harden sshd (`bootstrap_harden_sshd=false` in `group_vars/cloud_app.yml`). Every later play connects as `drproj` with the same key. Host key policy is `accept-new` for cloud VMs only. Fixed hosts use the root-mode flow above (controller-side `.pub`, no user switch, no sshd hardening).
 
 
+## 6. Supabase init
+
+*Run once as DB-1 (evidence: `drproj-mgmt/tests/evidence/DB-1.md`).* Needs the Supabase session-pooler string for the `postgres` user and an SSH session on management. The password goes only into `/etc/drproj/secrets/*.env` (0600) and the shell environment.
+
+1. **Tooling.** Management has Docker but no Node or psql, so run both from containers: `postgres:17-alpine` for `psql`, `node:22-bookworm-slim` for the repos synced to `/opt/drproj/src/{drproj-app,drproj-mgmt}` (`pnpm install --frozen-lockfile`; drproj-mgmt links `../drproj-app`, so mount the parent directory). Download Supabase's root CA, compare its SHA-256 with the root the pooler presents (`openssl s_client -starttls postgres`), install it as `/etc/drproj/ca/supabase-root-2021.crt` and pass `NODE_EXTRA_CA_CERTS`. Without it Node fails with "self-signed certificate in certificate chain". Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+2. **Server version.** `SELECT version()` through the pooler; record the major as `supabase.postgres_server_major` (17).
+3. **Migrate first, then logins.** The `dr_*` group roles are created by `ops/0001` (and `dr_automation` by `ops/0009`), so run `pnpm migrate` with the `postgres` URL (`db-migration.env`) before creating login users: 13 ops + 2 app migrations; a second run prints "No pending migrations."
+4. **Login users.** Per role: a 32-character alphanumeric password from `openssl rand`, `CREATE ROLE <r> LOGIN PASSWORD ...` then `GRANT dr_<r> TO <r>` (`app_runtime`→`dr_app_runtime`, `ops`→`dr_ops`, `backup`→`dr_backup`, `restore`→`dr_restore`, `automation`→`dr_automation`), and `db-<r>.env` holding `SUPABASE_APP_URL`, `SUPABASE_OPS_URL`, `SUPABASE_BACKUP_URL`, `SUPABASE_RESTORE_URL` or `DR_AUTOMATION_URL`. Supply the password through stdin, not argv. Re-running keeps existing passwords.
+5. **Seed.** `pnpm seed:policy` (drproj-mgmt, ops URL) creates policy version 1 active; `pnpm seed` (drproj-app, app URL) inserts the 12 demo requests when `DEMO_MODE` is intended. Both are idempotent.
+6. **Verify per role** (rolled-back attempts): `app_runtime` reads/writes `app.*`, executes `ops.app_admit_write()` and is denied everything else in `ops`; `ops` has no write path to capacity tables or `app`; `automation` reads capacity tables and calls capacity functions (it has no direct table writes by design) and is denied `app`; `backup` is read-only on `app` and denied `ops`; `restore` can create objects in and rename schema `app` and is denied `ops`.
+7. **Keep-alive and size.** Run the `cdr.keepalive` logic once against the ops URL (a `stackstorm` row in `ops.keepalive_runs`) and check `pg_database_size` against the 450 MB restore budget.
+8. **Rollback.** Drop the login roles (`DROP ROLE`) and delete their env files; drop schemas `app`/`ops` only on an empty project.
+
+
 ---
 
 # Source: config/deployment-inputs.example.json
@@ -2257,7 +2272,7 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
     "migration_connection_reference": "env://SUPABASE_MIGRATION_URL",
     "restore_connection_reference": "env://SUPABASE_RESTORE_URL",
     "dump_connection_mode": "session_pooler",
-    "postgres_server_major": null
+    "postgres_server_major": 17
   },
   "registry": {
     "host": "ghcr.io",
