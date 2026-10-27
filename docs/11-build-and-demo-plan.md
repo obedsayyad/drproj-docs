@@ -144,7 +144,18 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 ```
 
-`playbooks/app.yml` (primary and cloud VMs) is run by `cdr.run_heavy` for cloud VMs; for the primary it is run by hand once the image digest is in the inputs.
+`playbooks/app.yml` (primary and cloud VMs) is run by `cdr.run_heavy` for cloud VMs; for the primary it is run by hand once the image digest is in the inputs (docs/15, Deploy primary).
+
+### Bootstrap progress
+
+| Task | Status | Evidence (`drproj-mgmt/tests/evidence/`) |
+|---|---|---|
+| BOOTSTRAP-1: Ansible controller, Docker, secrets directories on management and primary | done | `BOOTSTRAP-1.md` |
+| CA-1: project CA, leaf for primary, trust bundle | partial (node_exporter probe closed by DEPLOY-PRIMARY) | `CA-1.md` |
+| DB-1: Supabase init, ops 0001-0013, app 0001-0002, 12 demo rows | done | `DB-1.md` |
+| DEPLOY-PRIMARY: relief app on primary by digest, primary in `ops.instances` (ops 0014) | done | `DEPLOY-PRIMARY.md` |
+
+Direct-IP and metrics exposure (8443, 9464, 9100) is not restricted at the network layer; firewalling is out of scope until the operator asks for it at the end.
 
 ## Releases
 
