@@ -51,7 +51,7 @@ HAProxy `maint` disables health checks on that server, so HAProxy cannot observe
 | Mode | Lines |
 |---|---|
 | `normal` | `primary` `ready`, weight 256; `warm_bk` `ready`; `warm_act` `maint`; elastic lines whose slot is not serving: `maint` (a serving elastic line stays until scale-in drains it) |
-| `overflow` | `warm_act` weight 256, `ready`; then `warm_bk` `maint` |
+| `overflow` | `warm_act` weight 256, `ready`; `warm_bk` stays `ready` (the backup line stays UP so standby alerting never goes quiet) |
 | `ramp(s)` | serving cloud lines (`warm_act`, `iwarm_act`, elastic of slots routed `active`/`draining`) `ready`, weight 256; `primary` weight `round(256·s/(100−s))`, capped at 256 (28 for 10, 256 for 50; 100 is `normal`) |
 | `primary_failure` | `primary` `maint` |
 
