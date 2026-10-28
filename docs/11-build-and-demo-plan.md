@@ -26,7 +26,7 @@ Gate: Compose validation, dependency health and real metrics; memory/concurrency
 
 Tests: T16, T18, T30, T31.
 
-Status: management stack running on the real management VM (28 October 2026, MGMT-STACK); T30 keep-alive, T31 and the T18 snapshot are recorded in `MGMT-STACK.md`. Open: provider tokens (reconcile and capacity actions cannot run), HAProxy stats upstream, `cdr_member_serving` source, blackbox probe targets.
+Status: management stack running on the real management VM (28 October 2026, MGMT-STACK); T30 keep-alive, T31, the T18 snapshot and the one-heavy-job T18 run are recorded in `MGMT-STACK.md`; reconcile ends `noop` (`providers_unconfigured`) while no provider tokens exist. Open: provider tokens (capacity actions cannot create VMs), HAProxy stats upstream, `cdr_member_serving` source, blackbox probe targets.
 
 ## Phase 4 — StackStorm workflows
 
