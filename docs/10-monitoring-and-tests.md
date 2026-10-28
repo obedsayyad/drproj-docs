@@ -41,8 +41,9 @@ Rules live in `monitoring/rules/cdr.yml`; every rule has a firing and a not-firi
 | `CdrMembershipAbsent` | `absent(cdr_member_serving)` | critical |
 | `CdrCpuHigh` | vCPU-weighted CPU of serving members only above 60% for 30 s; label `cdr_event: app.cpu.high` | warning |
 | `CdrCpuLow` | the same expression below 20% for 120 s; `cdr_event: app.cpu.low` | info |
-| `CdrPrimaryUnhealthy` | primary (`cdr_member_serving{role="primary"}`) whose relief scrape target is not up for 30 s; `cdr_event: app.primary.unhealthy` (HAProxy health replaces this signal in P6) | critical |
-| `CdrBackendCertExpiringSoon` | `probe_ssl_earliest_cert_expiry - time() < 14 * 86400` (no blackbox targets until Phase 5/6) | warning |
+| `CdrPrimaryUnhealthy` | `haproxy_server_status{proxy="be_app",server="primary",state="DOWN"} == 1` for 30 s (HAProxy's own 3-check view; a `MAINT` latch after failover does not re-fire); `cdr_event: app.primary.unhealthy` | critical |
+| `CdrStandbyUnhealthy` | `haproxy_server_status{proxy="be_app",server=~"warm_bk\|iwarm_bk",state="DOWN"} == 1` for 30 s (backup warm lines only; disabled or `MAINT` lines never match); `cdr_event: standby.unhealthy` → `cdr.alert_intent` → `standby_repair` | warning |
+| `CdrBackendCertExpiringSoon` | `probe_ssl_earliest_cert_expiry - time() < 14 * 86400` (blackbox `http_2xx` probe of `https://app.cproj.obed.one/health/live`, job `app_cert`, P6.1) | warning |
 | `CdrSupabaseDbSizeHigh` | `cdr_supabase_db_size_bytes > 400 MB` | warning |
 | `CdrSupabaseKeepaliveStale` | last successful keep-alive older than 12 h | warning |
 | `CdrBackupStale` | latest captured backup older than 26 h | warning |
@@ -106,9 +107,9 @@ Keep health checks responsive using bounded worker-thread/worker-pool processing
 | T12 | Daily/immediate dump | Success/failure catalogue, checksum, actual artifact, correct app-only scope |
 | T13 | Deleted data | Isolated verification, maintenance, safety dump, restored seeded records, ops history preserved |
 | T14 | Restore failure | Maintenance retained; verified safety rollback or explicit unresolved incident |
-| T15 | Management restart | Existing HAProxy service continues; interrupted intent reconciled without duplicates |
+| T15 | Management restart | Existing HAProxy service continues; interrupted intent reconciled without duplicates (P6.1: traffic part measured, 60 s curl loop through the LB during a restart of ops and 11 StackStorm services: 60/60 HTTP 200; interrupted-intent part needs P6.2 routing) |
 | T16 | Metrics/Supabase outage | Stale/dependency incidents; `/health/live` checks keep backends in; no speculative scale-in; no cascading restarts |
-| T17 | DNS/TLS | App goes to LB; management goes directly to management; renewal hook validated; cert-expiry alert fires under 14 days |
+| T17 | DNS/TLS | App goes to LB; management goes directly to management; renewal hook validated; cert-expiry alert fires under 14 days (P6.1: DNS, production certificate, hot-update hook and `probe_ssl_earliest_cert_expiry` measured; the alert firing under 14 days is not forced) |
 | T18 | Resource baseline | Full management stack plus one heavy job fits measured 8-vCPU/16-GB limits or clearly reports constraint |
 | T19 | Maintenance via direct IP | Write to a VM public IP during maintenance returns 503 `MAINTENANCE_WRITES_BLOCKED` with `Retry-After: 60` and `Cache-Control: no-store`; unreadable flag fails closed with `DEPENDENCY_UNAVAILABLE` |
 | T20 | Backup expiry/retry/no-overlap | Retention computed from capture finish; one retry on failure; overlapping runs rejected; `expired_at` set |

@@ -22,12 +22,12 @@ Manual runbook; the HAProxy VM is a single point of failure (docs/12).
 
 Prepare in advance:
 - Keep TTL at 60 s on the `app.cproj` A record in Vercel DNS.
-- Keep a plain backup of the HAProxy config, the certificate bundle, and the acme account on the management VM (directory 0700, files 0600).
+- Keep a plain backup of the HAProxy config, the certificate bundle, and the acme account on the management VM (directory 0700, files 0600). The `lb` role writes it after every successful run to `<backup.dir>/lb/` (`/var/backups/drproj/lb/`): `drproj-lb-backup.tgz` (`haproxy/`, `certs/`, `.env`, `compose.yaml`) and `drproj-lb-acme.tgz` (the acme.sh home with the account and certificate).
 
 Recover:
 1. Choose a replacement host (new or existing VM).
 2. Restore config, certificate bundle, and acme account from the backup.
-3. Run the Ansible `lb` role against the new host.
+3. Unpack both archives into `/opt/drproj/lb` (and the acme archive into the `acme` volume, or skip it and accept a new issue), then run the Ansible `lb` role against the new host (`playbooks/lb.yml`; section 9).
 4. Test before DNS change: `curl --resolve app.cproj.obed.one:443:<new-ip> https://app.cproj.obed.one/health/live`.
 5. In Vercel DNS, repoint the `app.cproj` A record to the new IP. Recovery time is bounded by the 60 s TTL plus resolver caching.
 6. Verify via public DNS, then check HAProxy server states and `show servers state`.
@@ -115,3 +115,14 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
 7. **Known state without tokens.** A provider whose token variable is unset is *unconfigured*: the real adapter makes no API call and answers `unavailable` with code `provider_unconfigured` (never an exception, never absence). `cdr.reconcile` skips that provider's tag scan and opens ONE warning incident `provider.unconfigured:<provider>` (fingerprint-deduped, no new event per tick). With both providers unconfigured the operation ends `succeeded` with `noop_reason=providers_unconfigured`; with one unconfigured the other is scanned as usual. Both incidents are visible in `/api/incidents` and stay open until an operator resolves them once the token exists. `/api/overview` keeps `providers` `unavailable`.
 8. **Rollback.** `docker compose --project-name drproj-mgmt --env-file /etc/drproj/mgmt/mgmt.env -f compose.yaml -f compose.ansible.yaml down` in `deploy/compose/mgmt` (add `-v` only to discard StackStorm, Prometheus and Grafana data). Re-running the play is safe. To rotate the operator password, delete `ops-operator.pw` and `ops_basic_auth_hash` and rerun.
 
+## 9. Load balancer bring-up (P6.1)
+
+*Run once as P6.1 (evidence: `drproj-mgmt/tests/evidence/P6.1-LB.md`).* Needs bootstrap, CA and the management stack done, DNS `app.cproj` pointing at the LB (TTL 60 s), `ingress.acme_email` set, `hosts.load_balancer.public_ip` and `rate_limit_exempt_ips` in the inputs.
+
+1. **Sync** the drproj-mgmt checkout and `infra/ansible/` to the management VM as in section 8, step 1 (the role vendors the Compose/HAProxy files from `drproj-app`; `tests/test_lb_parity.py` keeps them identical).
+2. **Dry run and apply.** On management: `ansible-playbook -i inventory/generated.yml playbooks/lb.yml --check --diff --limit load_balancer-vm -e inputs_file=...`, then without `--check` and with `-e lb_acme_staging=true` (the inputs hold `ingress.acme_staging`; the staging run proves the account, the compose wiring and the deploy hook). The role: renders `.env` (0600) with the stats password (created on first use in `/etc/drproj/mgmt/secrets/haproxy_stats_password`), the exempt-IP list and the CA bundle; issues the LB's admin leaf (key generated on the LB, CSR signed on management, SAN = LB IP); creates a placeholder `app.pem`; validates the config with `haproxy -c` in a one-shot container; starts the stack; issues and deploys the app certificate; verifies issuer, liveness and headers from the controller; takes the backup.
+3. **Production certificate.** After the staging run succeeds and DNS is right, run once with `-e lb_acme_staging=false`: the role force-reissues from Let's Encrypt production over HTTP-01 and hot-updates the pem (no restart). Do not alternate staging and production (rate limits).
+4. **Management side.** Rerun `playbooks/mgmt.yml`: it generates the runner's mTLS client certificate, writes the Prometheus targets (`haproxy` on `<LB>:8404`, `app_cert` for the public URL), points Caddy's `stats` site at `<LB>:8404`, and adds `haproxy` to `PROMETHEUS_EXPECTED_JOBS`. `/api/overview` then reports haproxy `fresh` once the operations image with the probe (P6.1 or later) is deployed.
+5. **Reload after a config change.** Edit `drproj-app/deploy/compose/lb`, copy to `roles/lb/files/`, run the role: it validates, dumps `show servers state`, and reloads gracefully. Change of the primary address: delete `state/server-state` on the LB first.
+6. **Checks.** `curl -sD- https://app.cproj.obed.one/health/live` (200, `X-Request-ID`, HSTS, nosniff, Referrer-Policy, CSP); `https://<LB>:8404/stats` and `/metrics` are 401 without credentials; port 9999 refuses a client without a project-CA certificate (TLS alert) and answers `show info` for the runner certificate; Prometheus targets `haproxy` and `app_cert` are up; `probe_ssl_earliest_cert_expiry` is present.
+7. **Rollback.** `docker compose -p drproj-lb down` in `/opt/drproj/lb` (volumes keep the acme account); restore from the section 2 backup.

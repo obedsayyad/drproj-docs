@@ -28,6 +28,8 @@ Tests: T16, T18, T30, T31.
 
 Status: management stack running on the real management VM (28 October 2026, MGMT-STACK); T30 keep-alive, T31, the T18 snapshot and the one-heavy-job T18 run are recorded in `MGMT-STACK.md`; reconcile ends `noop` (`providers_unconfigured`) while no provider tokens exist. Open: provider tokens (capacity actions cannot create VMs), HAProxy stats upstream, `cdr_member_serving` source, blackbox probe targets.
 
+P6.1 (28 October 2026): the load balancer is live on the real LB VM (`tests/evidence/P6.1-LB.md` in `drproj-mgmt`): HAProxy 3.2.26 with `app.cproj.obed.one` served by a production Let's Encrypt certificate (HTTP-01, hot-update hook), backend TLS verified against the project CA, stats/exporter on 8404 behind auth, mTLS Runtime API on 9999, Prometheus `haproxy` and `app_cert` jobs, `CdrPrimaryUnhealthy` from HAProxy and the new `CdrStandbyUnhealthy`, `/api/overview` haproxy `fresh`. Measured: T15 (traffic part), T17, T32, T33. Next: P6.2 (`apply_routing`, `drain_instance`, standby verification against the Runtime API) and P6.3 (failback gates, k6).
+
 ## Phase 4 — StackStorm workflows
 
 Create typed events/actions, capacity leases/slots, local adapters and execution history projection. Configure coordination explicitly. Implement bounded retries, readiness checkpoints (240/360/480 s), rechecking stale queued intents and reconciliation, lease heartbeat and `assert_lease` before side effects, per-slot Terraform states, tag-based orphan scan (never delete by tag alone), no scale-in during a primary outage, and the warm standby repair workflow. The "Adopt tagged orphans" runbook already exists in docs/15-runbooks.md section 1; update it alongside this work rather than writing it.
@@ -92,7 +94,7 @@ Decided 2026-10-22. Owner: GitHub account `obedsayyad`. Visibility: public. Thre
 |---|---|---|
 | `obedsayyad/drproj-docs` | This bundle as is: numbered docs, `spec/` (OpenAPI, events schema), `config/`, `PROJECT_HANDOFF.md`, `SHA256SUMS`, runbooks | Nothing (source of truth for contracts) |
 | `obedsayyad/drproj-app` | `apps/relief` (UI, API, demo workload), `packages/contracts`, `database/migrations` (one ordered runner: roles, `ops`, then `app`), `deploy/compose/app`, `tests/integration` | `ghcr.io/obedsayyad/drproj-relief` |
-| `obedsayyad/drproj-mgmt` | `apps/operations` (dashboard, management API), `infra/terraform` (one state per slot), `infra/ansible`, `automation/stackstorm`, `deploy/compose/mgmt`, HAProxy/Caddy config, `monitoring`, `tests/load` (k6), mgmt integration tests | `ghcr.io/obedsayyad/drproj-operations`, `ghcr.io/obedsayyad/drproj-runner` |
+| `obedsayyad/drproj-mgmt` | `apps/operations` (dashboard, management API), `infra/terraform` (one state per slot), `infra/ansible`, `automation/stackstorm`, `deploy/compose/mgmt`, Caddy config, the `lb` Ansible role (HAProxy config, compose and `acme.sh` live in `drproj-app/deploy/compose/lb`, vendored into the role), `monitoring`, `tests/load` (k6), mgmt integration tests | `ghcr.io/obedsayyad/drproj-operations`, `ghcr.io/obedsayyad/drproj-runner` |
 
 ### Shared contracts
 

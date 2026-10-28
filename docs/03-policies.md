@@ -54,6 +54,7 @@ A VM ready before the first checkpoint should be admitted immediately. Checkpoin
 | Capacity workflow concurrency | 1 per protected application |
 | Failback steps | 10%, 50%, 100% primary traffic targets |
 | Failback step observation | 60 seconds for the 10% and 50% steps, 120 seconds for the 100% step (`step_observation_seconds`, `final_step_observation_seconds`) |
+| Failback ramp weights and baseline | During the ramp the cloud serving lines run at weight 256 (HAProxy's maximum, set before the ramp starts) and the primary's weight for a target share of `s`% is `round(256·s/(100−s))`: 28 for 10%, 256 for 50% (equal weights); the 100% step returns to normal mode (cloud lines back to `warm_act` maint / elastic as scale-in decides) and the primary at its full weight. The baseline for the p95 gate is the median of the application p95 (`relief_http_request_duration_seconds`, 1 m windows) over the 10 minutes before the failure, stored in the operation when the failure is recorded |
 | Failback step gates | 2 consecutive health successes, samples timestamped after step start, 5xx under 1%, p95 under 1.5x baseline, primary CPU under 50%; any gate failure reverses to the previous step |
 | Capacity lease | 120 seconds, renewed every 20 seconds from a separate heartbeat; after 2 missed renewals the worker starts no new side effects |
 | Notifications | Dashboard only |
