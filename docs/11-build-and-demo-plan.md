@@ -41,10 +41,10 @@ Tests: T08, T09, T10, T22, T27, T36.
 **Status: complete on simulation (26 October 2026).** Gate and tests T08, T09, T10, T22, T27 and T36 pass against the local simulation adapter: a throwaway Postgres 17 container and StackStorm 3.9.0 (emulated amd64) under Docker Desktop, every VM a row in the simulation adapter's JSON state, routing, drain and the Prometheus reload simulated. This is not real infrastructure. Scripts, assertions and the latest pass counts are in `drproj-mgmt/tests/compose/README.md` and `PHASE4-EVIDENCE.md`; behaviour is in docs/04 (warm standby repair, as implemented) and docs/07 (resolved engineering defaults P4.2, P4.3, P4.4). Deferred, with where each lands:
 
 - **Real provider adapter** (Terraform/Ansible-backed create, get, delete, list-by-tag, power on, deploy, readiness, pinned digest): P5. Until then `provider_adapter: real` reports `not_implemented`.
-- **Real routing and HAProxy drain** (`apply_routing`, `drain_instance`, the HAProxy view in `standby_verify`): P6.
+- **Real routing and HAProxy drain** (`apply_routing`, `drain_instance`, the HAProxy view in `standby_verify`): implemented in P6.2 (`drproj-mgmt/tests/evidence/P6.2-ROUTING.md` lists what was checked live and what was not).
 - **Real `standby.unhealthy` producer** (HAProxy health of the standby server): P6. P4 has the simulation action `cdr.standby_unhealthy` only.
 - **apply_policy compile targets**: HAProxy, k6, Prometheus alert-rule thresholds and StackStorm timers (P6, P7); the compose wiring that lets StackStorm write `prometheus.yml` and reload Prometheus (`--web.enable-lifecycle`, a writable mount) is P6. Changes to those settings fail `not_implemented` until then.
-- **Workflow bodies for** `failback` (P6), `start_load_test` and `stop_load_test` (P6/P8), `create_backup`, `verify_backup` and `restore_application` (P7): skeleton workflows exist and fail `not_implemented`.
+- **Workflow bodies for** `start_load_test` and `stop_load_test` (P6/P8), `create_backup`, `verify_backup` and `restore_application` (P7): skeleton workflows exist and fail `not_implemented`.
 - Not covered by P4: the restart gate against a real provider, per-slot Terraform states and TLS rotation (P5).
 
 ## Phase 5 — real infrastructure

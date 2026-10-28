@@ -44,6 +44,34 @@ HAProxy `maint` disables health checks on that server, so HAProxy cannot observe
 6. Retain elastic VMs until scale-in rules and remaining-capacity checks allow safe removal.
 7. Resolve the incident only after service verification, not merely primary boot.
 
+### Real routing adapter: modes, ramp and gates (P6.2)
+
+`cdr.apply_routing` drives HAProxy through the Runtime API (docs/07, docs/08) when `adapter_mode` is `real`. Modes act on the `be_app` server lines; commands that would change nothing are not sent, and `ready`/weight changes precede `maint`/`drain`:
+
+| Mode | Lines |
+|---|---|
+| `normal` | `primary` `ready`, weight 256; `warm_bk` `ready`; `warm_act` `maint`; elastic lines whose slot is not serving: `maint` (a serving elastic line stays until scale-in drains it) |
+| `overflow` | `warm_act` weight 256, `ready`; then `warm_bk` `maint` |
+| `ramp(s)` | serving cloud lines (`warm_act`, `iwarm_act`, elastic of slots routed `active`/`draining`) `ready`, weight 256; `primary` weight `round(256·s/(100−s))`, capped at 256 (28 for 10, 256 for 50; 100 is `normal`) |
+| `primary_failure` | `primary` `maint` |
+
+Elastic join is `set server addr <ip> port 8443`, weight 256, `state ready` on the slot's line; leave is `state drain`, then wait for current connections 0 (`show servers conn`, every 2 s) or `scale_in.drain_timeout_seconds` (timeout: the scale-in pauses and raises `infrastructure.drain.timeout`; nothing is deleted), then `state maint`. A line without an address (`0.0.0.0`) is never made `ready`. Every command is preceded by `assert_lease`, followed by a `show servers state` dump in the membership store (docs/08) and an `ops.audit_events` row (`haproxy.command`); its effect must show in that dump or the step fails (`effect_unverified`).
+
+Failback sequence (workflow `cdr.failback`, real adapter only): 60 s of direct probes (`failback.stable_seconds`), `ramp(0)` (primary weight 0, then `ready`), wait for HAProxy to report the primary UP (`rise 6`), then `ramp(10)`, `ramp(50)` and `normal` (the 100% step) observed for 60, 60 and 120 s. A failed direct probe during observation, or any failed gate at its end, reverses exactly one step (10 → weight 0, 50 → 10, 100 → 50), ends the operation `failed` with `failback_regressed`, and leaves the incident open. When the 100% step passes: warm back to `backup`, incident resolved. With the simulation adapter the workflow fails `not_implemented` at `direct_probes` before taking the lease.
+
+Gates are read from Prometheus when the observation ends (rates use `[60s]`, so every sample behind a value is newer than the step start; a missing result fails the gate):
+
+| Gate | PromQL | Passes when |
+|---|---|---|
+| 5xx ratio | `sum(rate(haproxy_server_http_responses_total{proxy="be_app",server="primary",code="5xx"}[60s])) / sum(rate(haproxy_server_http_responses_total{proxy="be_app",server="primary"}[60s]))` | < `gate_max_5xx_ratio` (0.01) |
+| p95 | `histogram_quantile(0.95, sum by (le) (rate(relief_http_request_duration_seconds_bucket[60s])))` | < `gate_max_p95_ratio_to_baseline` (1.5) × baseline |
+| primary CPU | `100 * (1 - avg(rate(node_cpu_seconds_total{role="app",mode="idle",instance=~"<primary ip>:.*"}[60s])))` | < `gate_max_primary_cpu_percent` (50) |
+| samples after start | `max(timestamp(haproxy_server_http_responses_total{proxy="be_app",server="primary"}))` | newer than the step start |
+| health | direct `/health/live` and `/health/ready` probes every 10 s | the last `gate_consecutive_health_successes` (2) succeed, and none fails during the window |
+| baseline | `quantile_over_time(0.5, (histogram_quantile(0.95, sum by (le) (rate(relief_http_request_duration_seconds_bucket[1m]))))[10m:1m] offset 1m)` | taken when the primary failure is recorded (`cdr.capture_baseline`) and stored on the incident |
+
+The steps (10/50/100) are fixed in the workflow; the observation seconds and the gate thresholds come from the captured policy (`failback.*`).
+
 ## Scale-in
 
 1. Active-fleet CPU remains below 20% for two minutes.

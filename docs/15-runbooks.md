@@ -126,3 +126,25 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
 5. **Reload after a config change.** Edit `drproj-app/deploy/compose/lb`, copy to `roles/lb/files/`, run the role: it validates, dumps `show servers state`, and reloads gracefully. Change of the primary address: delete `state/server-state` on the LB first.
 6. **Checks.** `curl -sD- https://app.cproj.obed.one/health/live` (200, `X-Request-ID`, HSTS, nosniff, Referrer-Policy, CSP); `https://<LB>:8404/stats` and `/metrics` are 401 without credentials; port 9999 refuses a client without a project-CA certificate (TLS alert) and answers `show info` for the runner certificate; Prometheus targets `haproxy` and `app_cert` are up; `probe_ssl_earliest_cert_expiry` is present.
 7. **Rollback.** `docker compose -p drproj-lb down` in `/opt/drproj/lb` (volumes keep the acme account); restore from the section 2 backup.
+
+## 10. Manual routing override (P6.2)
+
+Use only when automation cannot or must not act (for example the runner is down during an incident). StackStorm is the sole controller: first make sure no operation holds the capacity lease (`SELECT holder_operation, lease_expires_at FROM ops.control_leases` through the ops login, or the dashboard shows no running operation), otherwise the override fights a running workflow.
+
+*Allowed commands (the LB's allowlist, `admin_allow.regex`; anything else is refused with no answer).* One command per connection.
+
+| Command | Use |
+|---|---|
+| `show info`, `show stat` | read |
+| `show servers state`, `show servers conn` | read; the state dump is the membership record |
+| `set server be_app/<name> state ready\|drain\|maint` | any `be_app` server, including `primary` (see the primary warning) |
+| `set server be_app/<name> weight N` or `N%` | N at most 256 for the project (the adapter refuses more) |
+| `set server be_app/<warm_bk\|warm_act\|iwarm_bk\|iwarm_act\|elastic-{do,linode}-1..5> addr <ipv4> port <n>` | never on `primary` |
+
+1. **Send a command** from the management VM (client certificate, key and CA from the mgmt role):
+   `printf 'show servers state\n' | openssl s_client -quiet -connect <LB IP>:9999 -cert /etc/drproj/mgmt/secrets/runner-client.crt -key /etc/drproj/mgmt/secrets/runner-client.key -CAfile /etc/drproj/ca/ca-bundle.crt -verify_return_error 2>/dev/null`.
+   A `set server` command answers with nothing when it worked; any text is an error. Check the effect with `show servers state` (columns `srv_op_state`, `srv_admin_state`: 0 ready, 1 forced maint, 4 config-disabled, 8 forced drain; `srv_uweight`).
+2. **Record it.** After every change save the dump, so the next `lb` role run and the adapter start from the real state: repeat the `show servers state` command with its output redirected to `/var/lib/drproj/haproxy-state/$(date -u +%Y%m%dT%H%M%S000000Z).state`, `chmod 600` the file (keep the directory 0700, owner the st2 uid), and note the command, the reason and the time in the incident.
+3. **Common cases.** Take a warm standby into service: `set server be_app/warm_act weight 256`, then `state ready`. Remove a line cleanly: `state drain`, wait until `show servers conn` shows 0 for it, then `state maint`. Return to normal: primary weight 256 and `ready`; `warm_bk` `ready`; `warm_act` and unused elastic lines `maint`.
+4. **Primary warning.** `state maint` or `drain` on `primary` removes the application's main server and stops its health checks, so the primary then stays out until someone sets it `ready`; it is the failover latch. Do it only on purpose, and bring it back through the failback sequence (docs/04: weight 0, `ready`, wait for UP, ramp), not by setting weight 256 directly.
+5. **Afterwards.** Let the next reconcile and failback run; the adapter reads the live state and plans from it, so a manual state is not overwritten unless a mode asks for it.
