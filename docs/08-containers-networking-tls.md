@@ -118,7 +118,7 @@ Direct-IP access to the application VMs is not blocked (accepted risk, docs/12);
 
 ## Resolved images, tags and ports (Phase 3.1)
 
-Compose files: `drproj-mgmt/deploy/compose/{mgmt,testing}`, `drproj-app/deploy/compose/{app,lb}`. Every service sets `mem_limit`, a healthcheck and a pinned tag; only stateful services have named volumes. The tags are the latest stable at 2026-10-24 (`config/deployment-inputs.example.json`, `versions.*`) and are **unverified until smoke**: a tag counts as verified only after the stack has run on the target VM. The mongo, rabbitmq and redis tags follow what the StackStorm 3.9 images are used with rather than the newest releases. The `mem_limit` values (management stack always-on services 3568 MB in total, ~528 MB headroom on the 4096 MB VM; st2-register and restore-test-pg are profile-gated and excluded) are initial ceilings to be measured (T18).
+Compose files: `drproj-mgmt/deploy/compose/{mgmt,testing}`, `drproj-app/deploy/compose/{app,lb}`. Every service sets `mem_limit`, a healthcheck and a pinned tag; only stateful services have named volumes. The tags are the latest stable at 2026-10-24 (`config/deployment-inputs.example.json`, `versions.*`) and are **unverified until smoke**: a tag counts as verified only after the stack has run on the target VM. The mongo, rabbitmq and redis tags follow what the StackStorm 3.9 images are used with rather than the newest releases. The `mem_limit` values (management stack always-on services 3568 MB in total; the real VM has 16 GB, so that is about 22% of RAM; st2-register and restore-test-pg are profile-gated and excluded) were measured once on the VM at idle (MGMT-STACK, T18 snapshot): the 20 containers used about 1.6 GB in total. Grafana sat at 252 of its 256 MB ceiling and must not be lowered; the st2 services use 67-91 MB of 160-192 MB. The one-heavy-job part of T18 is still open.
 
 | Component | Image and tag |
 |---|---|
@@ -151,3 +151,14 @@ The StackStorm `cdr` pack (`drproj-mgmt/automation/stackstorm/packs/cdr`) carrie
 Recovery procedures (orphan adoption, HAProxy VM recovery, Supabase pause check, restore rollback) are in docs/15-runbooks.md.
 
 Do not expose the ops API credential configuration through a frontend or bundle it into React. Registry credentials are read-only on application hosts. Keep native stores/queues on the internal management Compose network.
+
+### Management stack defaults (MGMT-STACK)
+
+- Secrets live in `/etc/drproj/mgmt/` (0700): `mgmt.env` (Compose environment, 0600) and `secrets/` (`MGMT_SECRETS_DIR`). Passwords are created by the role with `ansible.builtin.password` and kept; files read inside containers are owned by the container user (st2 uid 103/gid 104, Grafana 472, nobody 65534), mode 0600, except `st2_api_key` (0640: Alertmanager as owner, st2 as group). Docker bind mounts keep host ownership, so `root:root 0600` is unreadable to the st2 services.
+- The operator password is generated (24 alphanumerics) because the API requires at least 12 characters; it is stored in `/etc/drproj/secrets/ops-operator.pw`, the Caddy hash (bcrypt, `htpasswd -B` from stdin) in `/etc/drproj/mgmt/secrets/ops_basic_auth_hash`.
+- `ACME_CA` is derived from `ingress.acme_staging` (staging first, then production). Caddy needs `ingress.acme_email`.
+- The pack's database login is a dedicated `stackstorm` role in `dr_ops` and `dr_automation` (`scripts/db-init/create-stackstorm-login.sh`).
+- The ops API and the actionrunner trust the Supabase root CA through `NODE_EXTRA_CA_CERTS` / `PGSSLROOTCERT` (`compose.ansible.yaml`); verification is never disabled.
+- Prometheus loads the real-deployment `node` job through `scrape_config_files` (mounted only by `compose.ansible.yaml`); file_sd targets for the primary are generated into `monitoring/targets/{relief,node}/primary.json` (gitignored). The node_exporter scrape password is read once from the primary and stored on management (0600, owner nobody).
+- `provider_adapter: real` is configured without tokens (`token_env` names only, `REPLACE_ME_BEFORE_PROVISIONING` for region/size/image). The 60 s reconcile rule is disabled until tokens exist; the 6 h keep-alive rule is enabled.
+

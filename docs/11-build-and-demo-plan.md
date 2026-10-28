@@ -26,6 +26,8 @@ Gate: Compose validation, dependency health and real metrics; memory/concurrency
 
 Tests: T16, T18, T30, T31.
 
+Status: management stack running on the real management VM (28 October 2026, MGMT-STACK); T30 keep-alive, T31 and the T18 snapshot are recorded in `MGMT-STACK.md`. Open: provider tokens (reconcile and capacity actions cannot run), HAProxy stats upstream, `cdr_member_serving` source, blackbox probe targets.
+
 ## Phase 4 — StackStorm workflows
 
 Create typed events/actions, capacity leases/slots, local adapters and execution history projection. Configure coordination explicitly. Implement bounded retries, readiness checkpoints (240/360/480 s), rechecking stale queued intents and reconciliation, lease heartbeat and `assert_lease` before side effects, per-slot Terraform states, tag-based orphan scan (never delete by tag alone), no scale-in during a primary outage, and the warm standby repair workflow. The "Adopt tagged orphans" runbook already exists in docs/15-runbooks.md section 1; update it alongside this work rather than writing it.
@@ -154,6 +156,7 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 | CA-1: project CA, leaf for primary, trust bundle | partial (node_exporter probe closed by DEPLOY-PRIMARY) | `CA-1.md` |
 | DB-1: Supabase init, ops 0001-0013, app 0001-0002, 12 demo rows | done | `DB-1.md` |
 | DEPLOY-PRIMARY: relief app on primary by digest, primary in `ops.instances` (ops 0014) | done | `DEPLOY-PRIMARY.md` |
+| MGMT-STACK: management Compose stack (Caddy, ops, StackStorm, Prometheus, Grafana) via the `mgmt` role, production certificates | partial (reconcile fails closed without provider tokens; 60 s timer disabled) | `MGMT-STACK.md` |
 
 Direct-IP and metrics exposure (8443, 9464, 9100) is not restricted at the network layer; firewalling is out of scope until the operator asks for it at the end.
 

@@ -1289,7 +1289,7 @@ Direct-IP access to the application VMs is not blocked (accepted risk, docs/12);
 
 ## Resolved images, tags and ports (Phase 3.1)
 
-Compose files: `drproj-mgmt/deploy/compose/{mgmt,testing}`, `drproj-app/deploy/compose/{app,lb}`. Every service sets `mem_limit`, a healthcheck and a pinned tag; only stateful services have named volumes. The tags are the latest stable at 2026-10-24 (`config/deployment-inputs.example.json`, `versions.*`) and are **unverified until smoke**: a tag counts as verified only after the stack has run on the target VM. The mongo, rabbitmq and redis tags follow what the StackStorm 3.9 images are used with rather than the newest releases. The `mem_limit` values (management stack always-on services 3568 MB in total, ~528 MB headroom on the 4096 MB VM; st2-register and restore-test-pg are profile-gated and excluded) are initial ceilings to be measured (T18).
+Compose files: `drproj-mgmt/deploy/compose/{mgmt,testing}`, `drproj-app/deploy/compose/{app,lb}`. Every service sets `mem_limit`, a healthcheck and a pinned tag; only stateful services have named volumes. The tags are the latest stable at 2026-10-24 (`config/deployment-inputs.example.json`, `versions.*`) and are **unverified until smoke**: a tag counts as verified only after the stack has run on the target VM. The mongo, rabbitmq and redis tags follow what the StackStorm 3.9 images are used with rather than the newest releases. The `mem_limit` values (management stack always-on services 3568 MB in total; the real VM has 16 GB, so that is about 22% of RAM; st2-register and restore-test-pg are profile-gated and excluded) were measured once on the VM at idle (MGMT-STACK, T18 snapshot): the 20 containers used about 1.6 GB in total. Grafana sat at 252 of its 256 MB ceiling and must not be lowered; the st2 services use 67-91 MB of 160-192 MB. The one-heavy-job part of T18 is still open.
 
 | Component | Image and tag |
 |---|---|
@@ -1322,6 +1322,17 @@ The StackStorm `cdr` pack (`drproj-mgmt/automation/stackstorm/packs/cdr`) carrie
 Recovery procedures (orphan adoption, HAProxy VM recovery, Supabase pause check, restore rollback) are in docs/15-runbooks.md.
 
 Do not expose the ops API credential configuration through a frontend or bundle it into React. Registry credentials are read-only on application hosts. Keep native stores/queues on the internal management Compose network.
+
+### Management stack defaults (MGMT-STACK)
+
+- Secrets live in `/etc/drproj/mgmt/` (0700): `mgmt.env` (Compose environment, 0600) and `secrets/` (`MGMT_SECRETS_DIR`). Passwords are created by the role with `ansible.builtin.password` and kept; files read inside containers are owned by the container user (st2 uid 103/gid 104, Grafana 472, nobody 65534), mode 0600, except `st2_api_key` (0640: Alertmanager as owner, st2 as group). Docker bind mounts keep host ownership, so `root:root 0600` is unreadable to the st2 services.
+- The operator password is generated (24 alphanumerics) because the API requires at least 12 characters; it is stored in `/etc/drproj/secrets/ops-operator.pw`, the Caddy hash (bcrypt, `htpasswd -B` from stdin) in `/etc/drproj/mgmt/secrets/ops_basic_auth_hash`.
+- `ACME_CA` is derived from `ingress.acme_staging` (staging first, then production). Caddy needs `ingress.acme_email`.
+- The pack's database login is a dedicated `stackstorm` role in `dr_ops` and `dr_automation` (`scripts/db-init/create-stackstorm-login.sh`).
+- The ops API and the actionrunner trust the Supabase root CA through `NODE_EXTRA_CA_CERTS` / `PGSSLROOTCERT` (`compose.ansible.yaml`); verification is never disabled.
+- Prometheus loads the real-deployment `node` job through `scrape_config_files` (mounted only by `compose.ansible.yaml`); file_sd targets for the primary are generated into `monitoring/targets/{relief,node}/primary.json` (gitignored). The node_exporter scrape password is read once from the primary and stored on management (0600, owner nobody).
+- `provider_adapter: real` is configured without tokens (`token_env` names only, `REPLACE_ME_BEFORE_PROVISIONING` for region/size/image). The 60 s reconcile rule is disabled until tokens exist; the 6 h keep-alive rule is enabled.
+
 
 
 ---
@@ -1492,7 +1503,7 @@ Metrics:
 - Backup age, job failures, verification and restore duration.
 - Metrics source age and health.
 
-On stale metrics (>30 seconds by default) for any serving member, a missing serving member, or absent membership, freeze CPU-based scale actions and open an incident. Do not interpret missing values as zero. HAProxy failure routing continues. Management VM memory (4 GB) is measured with per-container limits, one heavy job at a time, and a 2 GB swapfile. T18 preview (local Docker Desktop, emulated amd64 StackStorm, not the management VM; `drproj-mgmt/tests/compose/t16-t30.local.out`): the full stack idled at about 1.9 GB summed over per-container peaks and about 2.0 GB under one `pg_restore` of the seed dump (a 10 KB dump, so this exercises the harness, not the T18 result). The first-draft st2 ceilings (64-128 MB) were SIGKILLed at startup and the sum of always-on `mem_limit` ceilings is now about 4.0 GB, so T18 on the VM must confirm or trim them. On a fresh MongoDB, start `st2api` first and wait for it to be healthy before the other st2 services (each registers the runner types and all but one hit a duplicate-key error, then restart).
+On stale metrics (>30 seconds by default) for any serving member, a missing serving member, or absent membership, freeze CPU-based scale actions and open an incident. Do not interpret missing values as zero. HAProxy failure routing continues. Management VM memory (16 GB real; the first plan assumed 4 GB) is measured with per-container limits, one heavy job at a time, and a 2 GB swapfile. T18 preview (local Docker Desktop, emulated amd64 StackStorm, not the management VM; `drproj-mgmt/tests/compose/t16-t30.local.out`): the full stack idled at about 1.9 GB summed over per-container peaks and about 2.0 GB under one `pg_restore` of the seed dump (a 10 KB dump, so this exercises the harness, not the T18 result). The first-draft st2 ceilings (64-128 MB) were SIGKILLed at startup and the sum of always-on `mem_limit` ceilings is now about 4.0 GB, so T18 on the VM must confirm or trim them. On a fresh MongoDB, start `st2api` first and wait for it to be healthy before the other st2 services (each registers the runner types and all but one hit a duplicate-key error, then restart).
 
 ## Bounded k6 tests
 
@@ -1590,6 +1601,8 @@ Create role-specific Compose files, health checks, persistent storage and pinned
 Gate: Compose validation, dependency health and real metrics; memory/concurrency measured under one heavy job; mutating requests (POST/PATCH/PUT/DELETE) on the ops host without the shared password return 401.
 
 Tests: T16, T18, T30, T31.
+
+Status: management stack running on the real management VM (28 October 2026, MGMT-STACK); T30 keep-alive, T31 and the T18 snapshot are recorded in `MGMT-STACK.md`. Open: provider tokens (reconcile and capacity actions cannot run), HAProxy stats upstream, `cdr_member_serving` source, blackbox probe targets.
 
 ## Phase 4 — StackStorm workflows
 
@@ -1719,6 +1732,7 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 | CA-1: project CA, leaf for primary, trust bundle | partial (node_exporter probe closed by DEPLOY-PRIMARY) | `CA-1.md` |
 | DB-1: Supabase init, ops 0001-0013, app 0001-0002, 12 demo rows | done | `DB-1.md` |
 | DEPLOY-PRIMARY: relief app on primary by digest, primary in `ops.instances` (ops 0014) | done | `DEPLOY-PRIMARY.md` |
+| MGMT-STACK: management Compose stack (Caddy, ops, StackStorm, Prometheus, Grafana) via the `mgmt` role, production certificates | partial (reconcile fails closed without provider tokens; 60 s timer disabled) | `MGMT-STACK.md` |
 
 Direct-IP and metrics exposure (8443, 9464, 9100) is not restricted at the network layer; firewalling is out of scope until the operator asks for it at the end.
 
@@ -2180,7 +2194,6 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
 7. **CA rotation** (after the first bootstrap, when the CA must change): `ca-rotate-bundle.yml`, confirm every verifier accepts both CAs, `ca-rotate-reissue.yml`, confirm probes are healthy, then `ca-rotate-drop-old.yml -e ca_confirm_drop_old=true`; the old key stays in `/etc/drproj/ca/retired/` until deleted by hand.
 8. **Cloud VM first contact (user switch).** `app.yml` bootstraps cloud VMs in its own first play, connecting as the Terraform-provisioned user (`cloud_first_contact_user`, default `root`, override `CLOUD_VM_SSH_USER`) with the cloud key (`CLOUD_VM_SSH_KEY_FILE`). That play creates `drproj` (cloud VMs only; fixed hosts stay root), copies the first-contact user's `authorized_keys` to it (Terraform already installed the key, so no `.pub` file is read or mounted), and does not harden sshd (`bootstrap_harden_sshd=false` in `group_vars/cloud_app.yml`). Every later play connects as `drproj` with the same key. Host key policy is `accept-new` for cloud VMs only. Fixed hosts use the root-mode flow above (controller-side `.pub`, no user switch, no sshd hardening).
 
-
 ## 6. Supabase init
 
 *Run once as DB-1 (evidence: `drproj-mgmt/tests/evidence/DB-1.md`).* Needs the Supabase session-pooler string for the `postgres` user and an SSH session on management. The password goes only into `/etc/drproj/secrets/*.env` (0600) and the shell environment.
@@ -2204,6 +2217,20 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
 4. **Verify from management** with `--cacert /etc/drproj/ca/ca-bundle.crt`: `/health/live` and `/health/ready` return 200 (`maintenance_generation`, `X-Instance-Id: primary`, `X-App-Version`); `docker inspect` image and `RepoDigests` equal the digest; the container runs as `node` (uid 1000); `GET /api/requests` lists the seeded rows; a `POST` repeated with the same `Idempotency-Key` returns 201 then 201 with `Idempotent-Replayed: true`; `PATCH` with `expected_version: 1` returns version 2; `https://<ip>:9100/metrics` is 401 without and 200 with the node_exporter password; `http://<ip>:9464/metrics` is 200.
 5. **Register.** Call `ops.register_fixed_instance('primary', '<public ip>', '<digest>')` as the `automation` login (idempotent; routing stays `none`, `simulated=false`). Confirm the row as `ops`.
 6. **Rollback.** `docker compose -p drproj-app down` in `/etc/drproj/app` on primary; set the instance `lifecycle_state` back by re-running the function after a redeploy, or delete the row as the migration login. Re-running `app.yml` is safe.
+
+## 8. Management stack bring-up
+
+*Run once as MGMT-STACK (evidence: `drproj-mgmt/tests/evidence/MGMT-STACK.md`).* Needs bootstrap, CA and Supabase init done, DNS for the four ingress hostnames pointing at management, `ingress.acme_email` set in `deployment-inputs.local.json`, and the operations and runner image digests in the inputs. **Provider tokens are not needed and are not installed: the real adapter is configured but provisioning is impossible until they exist.**
+
+1. **Sync.** From the workstation: `rsync -a` the drproj-mgmt checkout to `/opt/drproj/src/drproj-mgmt/` (exclude `.git`, `node_modules`, `deploy/inputs/*.local.json`, `.env*`, `secrets/`, `monitoring/targets/*/*.json`) and `infra/ansible/` to `/opt/drproj/ansible/` (exclude `deployment-inputs.local.json`, `inventory/generated.yml`). The Compose files mount repo-relative paths (`automation/`, `monitoring/`), so the whole tree must be there.
+2. **Database login for the pack.** `scripts/db-init/create-stackstorm-login.sh` (migration login, `db-migration.env`) creates the `stackstorm` login as a member of `dr_ops` and `dr_automation` and writes `/etc/drproj/secrets/db-stackstorm.env` (0600). The pack needs one login in both groups; with the separate `automation` login `cdr.keepalive` and `cdr.alert_intent` fail with `record_failed:privilege`.
+3. **Preflight and run.** On management: `cd /opt/drproj/ansible; export PATH=/opt/drproj/ansible-venv/bin:$PATH ANSIBLE_COLLECTIONS_PATH=/opt/drproj/ansible-venv/collections`, then `ansible-playbook playbooks/mgmt.yml --check --diff --limit management-vm` (stops at "Validate the rendered Compose project": the env file does not exist before the first real run) and without `--check`. The role checks that each hostname resolves to management (`getent`; `dig` is not installed), that 80/443 are free, that the DB env files are 0600, and it never prints a secret (`no_log`). It generates and keeps in `/etc/drproj/mgmt/` (0700): the operator password (`/etc/drproj/secrets/ops-operator.pw`) and its bcrypt hash, the Grafana admin and `st2admin` passwords and the st2 htpasswd, Mongo/RabbitMQ passwords, the pack config (`provider_adapter: real`, `REPLACE_ME_BEFORE_PROVISIONING` for region/size/image, no tokens), and the node_exporter scrape password, read once from the primary. Files read inside containers are owned by the container user (st2 uid 103, Grafana 472, nobody 65534); `st2_api_key` is the one 0640 file (Alertmanager owner, st2 group), inside the 0700 directory. Read the operator password with `! cat /etc/drproj/secrets/ops-operator.pw`.
+4. **Certificates.** Keep `ingress.acme_staging: true` for the first run and check each host with `echo | openssl s_client -connect <host>:443 -servername <host> | openssl x509 -noout -issuer` (expect `(STAGING)`). Then set it to `false` in the inputs, rerun the play (Caddy is recreated and fetches production certificates; allow about a minute) and check the issuer again. Let's Encrypt limits duplicate certificates, so do not flip back and forth.
+5. **Two-phase StackStorm start.** The play starts everything, registers the pack (`st2-register`, which validates the pack config against its schema), builds the pack virtualenv, creates the `St2-Api-Key` once (`/etc/drproj/mgmt/st2-cli.sh apikey create`), re-renders the environment and recreates `ops` and `alertmanager`, then disables `cdr.reconcile_every_60s`. The 6 h `cdr.keepalive_every_6h` rule stays enabled. **The 60 s reconcile stays disabled until provider tokens exist**; enable it with `/etc/drproj/mgmt/st2-cli.sh rule enable cdr.reconcile_every_60s` only after a manual `cdr.reconcile` ends `succeeded` in `ops.operations`.
+6. **Verify.** `https://ops.<domain>/api/overview` is 200 with `supabase`, `prometheus` and `stackstorm` `fresh`, `haproxy` "not probed in this phase" and `providers` `unavailable`; `GET /api/instances` lists the primary with `simulated=false`; POST/PATCH/PUT/DELETE without credentials return 401 with `WWW-Authenticate`, with `operator:<password>` they do not; Grafana redirects to its login and `/api/search` is 401; the StackStorm API is 401 without a token; ports 9090 and 9093 are refused from outside (no published ports); Prometheus targets `relief` (:9464, HTTP) and `node` (:9100, HTTPS with the project CA and basic auth) are up; `/etc/drproj/mgmt/st2-cli.sh run cdr.keepalive` adds an `ops.keepalive_runs` row. `docker stats --no-stream` gives the T18 snapshot.
+7. **Known state without tokens.** A manual `cdr.reconcile` ends `failed` (`workflow_error` in `ops.operations`): the real adapter has no tokens, `reconcile_pass` raises an adapter configuration error at the provider scan (reported as `provider_adapter_missing_or_unknown`) before any provider API call. This is fail-closed behaviour, not a noop. `/api/overview` keeps `providers` `unavailable`.
+8. **Rollback.** `docker compose --project-name drproj-mgmt --env-file /etc/drproj/mgmt/mgmt.env -f compose.yaml -f compose.ansible.yaml down` in `deploy/compose/mgmt` (add `-v` only to discard StackStorm, Prometheus and Grafana data). Re-running the play is safe. To rotate the operator password, delete `ops-operator.pw` and `ops_basic_auth_hash` and rerun.
+
 
 
 ---
@@ -2300,8 +2327,9 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
     "host": "ghcr.io",
     "namespace": "obedsayyad",
     "repository": null,
-    "application_image_digest": null,
-    "runner_image_digest": null,
+    "application_image_digest": "sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea",
+    "operations_image_digest": "sha256:b12ee869712a8176c659d2666846c3ff47ede30d579949220b780fcadafa546b",
+    "runner_image_digest": "sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7",
     "pull_credential_reference": "env://GHCR_READONLY_TOKEN",
     "images": {
       "relief": "drproj-relief",
