@@ -2516,6 +2516,19 @@ components:
         active_policy_version:
           type: integer
           minimum: 1
+        schema_revision:
+          type: object
+          description: Newest ops migration applied vs the one this build expects; the endpoint answers 503 when they differ.
+          required:
+          - applied
+          - expected
+          properties:
+            applied:
+              type:
+              - string
+              - 'null'
+            expected:
+              type: string
         capacity:
           type: object
           required:
