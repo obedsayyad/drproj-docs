@@ -31,7 +31,7 @@ The user completed technical planning and intends to implement with Claude Code.
 - Each cloud application VM: 1 vCPU / 1 GB RAM.
 - Management VM: 8 vCPU / 16 GB RAM, 62 GB disk (Debian 12).
 - HAProxy VM: 1 vCPU / 1 GB RAM.
-- k6 testing VM: 2 vCPU / 2 GB RAM.
+- k6 testing VM: 4 vCPU / 8 GB RAM (as built, BOOTSTRAP-1).
 - Docker/Compose on every VM role; no Kubernetes or cross-cloud cluster.
 - No firewall setup or firewall automation. No VPN requirement.
 - HAProxy balances only sample-application traffic.

@@ -158,7 +158,8 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 | CA-1: project CA, leaf for primary, trust bundle | partial (node_exporter probe closed by DEPLOY-PRIMARY) | `CA-1.md` |
 | DB-1: Supabase init, ops 0001-0013, app 0001-0002, 12 demo rows | done | `DB-1.md` |
 | DEPLOY-PRIMARY: relief app on primary by digest, primary in `ops.instances` (ops 0014) | done | `DEPLOY-PRIMARY.md` |
-| MGMT-STACK: management Compose stack (Caddy, ops, StackStorm, Prometheus, Grafana) via the `mgmt` role, production certificates | partial (reconcile fails closed without provider tokens; 60 s timer disabled) | `MGMT-STACK.md` |
+| MGMT-STACK: management Compose stack (Caddy, ops, StackStorm, Prometheus, Grafana) via the `mgmt` role, production certificates | done (reconcile fails closed without provider tokens; 60 s timer stays disabled until tokens exist) | `MGMT-STACK.md` |
+| P6.1-LB: HAProxy VM (routing, ACME, rate limits, mTLS Runtime API on 9999, stats/exporter on 8404) via the `lb` role | done (live routing modes need provider tokens; backend CA, admin leaf and key modes re-applied in P6.1-FIX-1) | `P6.1-LB.md` |
 
 Direct-IP and metrics exposure (8443, 9464, 9100) is not restricted at the network layer; firewalling is out of scope until the operator asks for it at the end.
 
