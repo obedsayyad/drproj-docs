@@ -1806,9 +1806,13 @@ CI publishes on every push to `main` (`drproj-app` and `drproj-mgmt` `.github/wo
 
 | Image | Source commit | Digest | Rollback |
 |---|---|---|---|
-| `ghcr.io/obedsayyad/drproj-relief` | `drproj-app` 71ba435 | `sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea` | none yet (first publish) |
-| `ghcr.io/obedsayyad/drproj-operations` | `drproj-mgmt` c798637 (P6.2-FIX-1, deployed 2026-10-29) | `sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d` | `sha256:c0ff3d86ec18bddf7a951e950baabc41c40a45f05672607670afd0dc062483ba` (RELEASE-1 build, `drproj-mgmt` e79a9ed; before that `sha256:7ff3857078daf894f5bb4f4835bb635bedcb1ae197ffc6953c4909efa503f1e4`; first publish `sha256:b12ee869712a8176c659d2666846c3ff47ede30d579949220b780fcadafa546b`, `drproj-mgmt` e0647d7) |
-| `ghcr.io/obedsayyad/drproj-runner` | `drproj-mgmt` e0647d7 | `sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7` | none yet (first publish) |
+| `ghcr.io/obedsayyad/drproj-relief` | `drproj-app` 0bae18f (P6.3 baseline release, 2026-10-30: friendly "Answered by" header, `/api/instance`, `X-Instance-*`) | `sha256:2c1d89c86358dea43e276919d1a4a8c1ff461f02c70871349f5ce3f98119c067` | `sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea` (`drproj-app` 71ba435, first publish) |
+| `ghcr.io/obedsayyad/drproj-operations` | `drproj-mgmt` 8596fea (P6.3 baseline release, 2026-10-30) | `sha256:b5bcaf18387ce2ecb0f444c3b9ad5dbd88b9ce11da17f776a7e8920551f24c98` | `sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d` (P6.2-FIX-1, `drproj-mgmt` c798637; before that `sha256:c0ff3d86ec18bddf7a951e950baabc41c40a45f05672607670afd0dc062483ba`, RELEASE-1 build `drproj-mgmt` e79a9ed; `sha256:7ff3857078daf894f5bb4f4835bb635bedcb1ae197ffc6953c4909efa503f1e4`; first publish `sha256:b12ee869712a8176c659d2666846c3ff47ede30d579949220b780fcadafa546b`, `drproj-mgmt` e0647d7) |
+| `ghcr.io/obedsayyad/drproj-runner` | `drproj-mgmt` 8596fea (P6.3 baseline release, 2026-10-30) | `sha256:2291c73234b3cd6e39a8eecbdd2a2f81e33e82d90a739c14f2341e55afef9985` | `sha256:9a12505d52803d7357ce06fb7fbc6e87e6397f6c74748d8d680d1c1619f2c91f` (the value pinned in the inputs before this release; the earlier log row showed `sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7`, `drproj-mgmt` e0647d7) |
+
+**How this release was applied (2026-10-30).** `mgmt.yml` from management (failed=0; ops and runner containers recreated on the new digests, ops schema stays 0017). `app.yml` on the warm instance from inside the runner container (the management venv has no PostgreSQL driver for `inventory/cloud_app.py`): `docker exec --env-file db-automation.env --env-file db-app_runtime.env -e BACKEND_CA_BUNDLE=/etc/drproj/ca-bundle.crt -e CLOUD_VM_SSH_KEY_FILE=/run/secrets/cloud_vm_key ... /opt/ansible/bin/ansible-playbook playbooks/app.yml --limit <instance id>`; the CA bundle path inside the container differs from the host's `/etc/drproj/ca/ca-bundle.crt`, and the first run failed its liveness wait on that until the path was corrected (the deploy itself had applied; the rerun is idempotent). Primary: `be_app/primary` drained through the LB admin socket (warm took traffic), `app.yml --limit primary-vm`, then failback (weight 0, `ready`, UP, ramp to 256). A 1 request per second curl loop on the public URL saw 112 of 112 responses at 200 across primary, warm and primary again.
+
+**Rollback for this release.** Set the three `registry.*_image_digest` values back to the Rollback column in the inputs (local copy and `/opt/drproj/ansible/deployment-inputs.local.json`), then rerun `playbooks/mgmt.yml --limit management-vm` and `playbooks/app.yml --limit <host>` (warm first, primary through HAProxy). No migration changed in this release (ops stays at 0017), so image rollback is safe.
 
 When a later push publishes a new digest, copy the previous digest into the Rollback column before replacing it in the deployment inputs. Pushes that change only the `docs` submodule rebuild an image with the same contents but a new digest (revision label); record the digest you actually deploy.
 
@@ -1894,7 +1898,7 @@ The `versions.*` fields in `config/deployment-inputs.example.json` hold the pinn
 
 ## Local deployment inputs file
 
-`config/deployment-inputs.example.json` in this bundle now carries the approved addresses of the four fixed hosts (management 103.141.79.170, primary .171, load balancer .172, testing .173), the bootstrap user (`root`, first run only), the key path `~/.ssh/drproj` (a path on the workstation, not key material) and `rate_limit_exempt_ips` (the testing host). This departs from "no IPs in repositories" and was approved by the user for this public documentation repository; secrets, tokens and hashes remain out of every file. The runtime copy is `drproj-mgmt/deploy/inputs/deployment-inputs.local.json`: gitignored, mode 0600, created from the example with `documentation_only` false, and the only file Ansible and the runner read. Change values there; keep the example's keys in step. On the management VM the layout is fixed: the controller checkout is `/opt/drproj/ansible` (venv `/opt/drproj/ansible-venv`, scripts `/opt/drproj/scripts`) and the inputs file sits beside it at `/opt/drproj/ansible/deployment-inputs.local.json` (mode 0600). `inventory/group_vars/management.yml` records that path, and `group_vars/all.yml` uses it as the default `inputs_file` when the management host is the local connection (`gen-inventory.py --local-role management`); elsewhere the default stays the repo-relative file, and `-e inputs_file=...` always wins. There is no `/opt/drproj/deploy` on management.
+`config/deployment-inputs.example.json` in this bundle now carries the approved addresses of the four fixed hosts (management 103.141.79.170, primary .171, load balancer .172, testing .173), the bootstrap user (`root`, first run only), the key path `~/.ssh/drproj` (a path on the workstation, not key material) and `rate_limit_exempt_ips` (the testing host). This departs from "no IPs in repositories" and was approved by the user for this public documentation repository; secrets, tokens and hashes remain out of every file. The runtime copy is `drproj-mgmt/deploy/inputs/deployment-inputs.local.json`: gitignored, mode 0600, created from the example with `documentation_only` false, and the only file Ansible and the runner read. Change values there; keep the example's keys in step. `hosts.<name>.location` (optional, non-secret place label; the primary's default is `self-hosted (Pune DC)`) is what the relief header shows for a fixed host; cloud VM places come from `cloud_application.<provider>.region` (`fra1` shows as `fra1 (Frankfurt)`). On the management VM the layout is fixed: the controller checkout is `/opt/drproj/ansible` (venv `/opt/drproj/ansible-venv`, scripts `/opt/drproj/scripts`) and the inputs file sits beside it at `/opt/drproj/ansible/deployment-inputs.local.json` (mode 0600). `inventory/group_vars/management.yml` records that path, and `group_vars/all.yml` uses it as the default `inputs_file` when the management host is the local connection (`gen-inventory.py --local-role management`); elsewhere the default stays the repo-relative file, and `-e inputs_file=...` always wins. There is no `/opt/drproj/deploy` on management.
 
 ## Deployment inputs, not unanswered architectural questions
 
@@ -2345,6 +2349,23 @@ Use only when automation cannot or must not act (for example the runner is down 
 4. **Primary warning.** `state maint` or `drain` on `primary` removes the application's main server and stops its health checks, so the primary then stays out until someone sets it `ready`; it is the failover latch. Do it only on purpose, and bring it back through the failback sequence (docs/04: weight 0, `ready`, wait for UP, ramp), not by setting weight 256 directly.
 5. **Afterwards.** Let the next reconcile and failback run; the adapter reads the live state and plans from it, so a manual state is not overwritten unless a mode asks for it.
 
+## 11. Run the scenario suite (P6.3)
+
+*Evidence from the first full run: `drproj-mgmt/tests/evidence/P6.3-SCENARIOS.md`.* This creates and deletes billable cloud VMs (up to two elastic VMs per run); do it only when the request authorizes it. Everything is started through the management API, so every scenario is its own operation with its own id.
+
+*Prerequisites.* Sections 8 (management stack), 8a (providers), 9 (LB) and 7 (primary) done; the testing host configured (step 1); exactly one warm standby on DigitalOcean, no elastic VM, no open incident, HAProxy normal mode (`primary` UP weight 256, `warm_bk` UP, every other line maint).
+
+1. **Testing host.** Once: on management, `ssh-keygen` for the runner is done by the `mgmt` role (`/etc/drproj/mgmt/secrets/testing_ssh_key`, pinned host key `testing_known_hosts`, mounted into the runner); then write the public half as JSON (`printf '{"testing_runner_pubkey": "%s"}' "$(cat /etc/drproj/mgmt/secrets/testing_ssh_key.pub)" > /opt/drproj/k6key.json`; `-e key=value` splits on spaces) and run `ansible-playbook -i inventory/generated.yml playbooks/testing.yml --limit testing -e @/opt/drproj/k6key.json`. The role installs `/opt/drproj/k6/{compose.yaml,tests/cdr.js,bin/k6ctl}`, pulls `grafana/k6:<versions.k6>` and authorizes that one key with `command="/opt/drproj/k6/bin/k6ctl",restrict`. `k6ctl` accepts exactly `start <run_id> <scenario> <rate> <duration> <work_ms>`, `stop`, `status` and `result <run_id>`, validates every argument and the caps (200 rps, 600 s, 250 ms) again, and refuses a second start while the single container `drproj-k6` runs. Check: `ssh -i <key> root@<testing ip> id` is refused (exit 64), `... 'start x smoke 201 60 100'` is refused.
+2. **Helpers.** Copy `drproj-mgmt/tests/load/scenario/*` to `/opt/drproj/p63/` on management. `api.sh METHOD PATH [JSON]` calls the ops API with the operator password read from `/etc/drproj/secrets/ops-operator.pw` (never printed); `state.sh [n]` prints capacity, live instances, recent operations, open incidents, the HAProxy `be_app` lines (stats CSV on `<LB>:8404`) and the fleet CPU with the firing alerts; `watch.sh LABEL SECONDS` appends `state.sh` every 20 s to `watch-LABEL.log` (run it detached: `setsid nohup ./watch.sh T03 1500 &`); `sql.sh` reads `ops.*` through the pack's database login (read-only use).
+3. **Start a scenario.** `./api.sh POST /api/tests '{"scenario":"compute_pressure","rate_rps":30,"duration_seconds":600}'` (scenarios `smoke baseline compute_pressure sustained_surge recovery`; `sustained_surge` runs every request at the policy maximum work, the others at the default). Stop with `./api.sh POST /api/tests/<id>/stop`. A bound over the contract (rate above 200, duration above 600, rate or duration below 1, unknown scenario) is a 400 `VALIDATION_FAILED`; only a value over a *lowered policy* `demo.*` limit is a 422 `TEST_BOUNDS_EXCEEDED`. The summary (`p95_ms`, `error_rate`, `requests`, `achieved_rps`, `dropped_iterations`) lands in `ops.test_runs.summary` and the dashboard's Load tab; the raw files stay on the testing host in `/opt/drproj/k6/results/<run id>/`.
+4. **Overload (T03/T04/T28).** Run `compute_pressure` 30 rps for 600 s. Expect: fleet CPU above 60 % within about 40 s, `CdrCpuHigh` firing 30 s later, `activate_standby` (warm `active`), then `scale_out` after the 60 s cooldown: elastic VM on Linode (the warm standby counts on DigitalOcean), created, deployed, routed `active`. Time to ready is the `scale_out` operation's first to last event (`./sql.sh "SELECT ... FROM ops.operation_events ..."`), target 480 s. While CPU stays above 60 % the next step alternates to DigitalOcean. Chain a second 600 s run before the first ends if the load must continue (the API refuses two runs at once).
+5. **Scale-in and recovery (T07/T26).** Stop the load. After 120 s below 20 % `CdrCpuLow` fires and `scale_in` removes the newest elastic VM per step (drain, route off, `terraform destroy` of that slot only, provider absence check, slot released); when none is left and the primary is stable the same workflow returns the warm standby to `backup` (60 s observation of direct probes and fleet CPU, revert to overflow on regression). Prometheus discovers cloud VMs from `ops` (`/sd/cloud`), so scale-in needs no scrape-target edit; a leftover `monitoring/targets/{relief,node}/cloud-*.json` from an older version keeps a dead target and makes every scale-in end `metrics_stale`: delete it.
+6. **Primary failure and failback (T05/T06/T23).** Under steady traffic (run a `baseline` 10 rps scenario for at least 11 minutes first: the failback p95 gate compares with the median p95 recorded when the failure is detected, and a baseline taken in an idle window fails every later gate) stop the app on the primary (`ssh root@<primary> docker stop drproj-app-relief-1`). Expect `primary_failure` (primary maint, warm active, one elastic VM, about 4 to 5 minutes) with a short window of 503s until HAProxy marks the primary down (about 30 s). Start the app again and start the failback as the operator: `./api.sh POST /api/operations '{"kind":"failback"}'` (the policy flag `failback.automatic` has no trigger in this build). It probes the primary directly for 60 s, then ramps 10 %, 50 %, 100 % with the policy gates. To inject a regression, stop the app on the primary for 25 s while the 50 % step is being observed; the workflow reverses one step and ends `failed` with `failback_regressed`, the incident stays open, and a second `failback` completes the sequence (warm back to backup, incident resolved).
+7. **Drain timeout (T21).** The policy minimum for `scale_in.drain_timeout_seconds` is 5 s. With an elastic VM serving and `sustained_surge` at 100 rps keeping its worker queue full (about 8 s of queued work), request a `scale_in` through the API: the drain times out, the operation becomes `paused`, `infrastructure.drain.timeout:<slot>` opens and nothing is deleted. Stop the load, resolve the incident and run `scale_in` again. Restore the timeout to 60 s afterwards.
+8. **After the suite.** Exactly one warm standby on DigitalOcean (`ready`, HAProxy `warm_bk` UP, `warm_act` maint), no Linode instance, every other slot free, no open incident, `primary` UP weight 256, `ops.control_leases` free. If a slot is `held_uncertain` or a critical incident is open, stop and follow section 1 (orphans) and section 8a; do not delete resources by hand.
+
+9. **Known behaviors found by the first run.** (a) The failback p95 gate excludes `/health/ready` (database round trip, also the failback's own probe route) from the p95 query and from the recorded baseline; with no user traffic only `/health/live` samples remain. (b) A regressed failback reverses one step (to 10 % after a failed 50 %), ends `failed` with `failback_regressed` and leaves the incident open; request another `failback` once the primary is healthy. The failed gate and, for `health`, the failing path and error class are in the `ramp_*` task result (`probe_failure`). (c) `CdrCpuLow` repeats every 60 s while the fleet is idle; `alert_intent` opens no `scale_in` while a primary outage is open or when there is no elastic VM and the warm standby is not serving, so an idle fleet creates no operations (the gate still rechecks under the lock). (d) The Supabase keep-alive rule is a wall-clock cron (00/06/12/18:01 UTC): an interval timer restarts at every pack registration and never fired across redeploys.
+
 
 ---
 
@@ -2359,6 +2380,7 @@ Use only when automation cannot or must not act (for example the runner is down 
     "primary": {
       "hosting": "self_hosted",
       "public_ip": "103.141.79.171",
+      "location": "self-hosted (Pune DC)",
       "ssh_user": "root",
       "ssh_key_reference": "~/.ssh/drproj",
       "vcpu": 2,
@@ -2400,18 +2422,18 @@ Use only when automation cannot or must not act (for example the runner is down 
     "vcpu": 1,
     "memory_mb": 1024,
     "digitalocean": {
-      "region": null,
-      "size_id": null,
-      "image_id": null,
+      "region": "fra1",
+      "size_id": "s-1vcpu-1gb-intel",
+      "image_id": "debian-13-x64",
       "token_reference": "env://DIGITALOCEAN_API_TOKEN",
-      "ssh_key_id_reference": null
+      "ssh_key_id_reference": "env://DIGITALOCEAN_SSH_KEY_ID"
     },
     "linode": {
-      "region": null,
-      "size_id": null,
-      "image_id": null,
+      "region": "eu-central",
+      "size_id": "g6-nanode-1",
+      "image_id": "linode/debian13",
       "token_reference": "env://LINODE_API_TOKEN",
-      "ssh_key_id_reference": null
+      "ssh_key_id_reference": "env://LINODE_SSH_KEY_LABEL"
     },
     "capacity": {
       "max_cloud_vms_per_provider": {
@@ -2440,9 +2462,9 @@ Use only when automation cannot or must not act (for example the runner is down 
     "host": "ghcr.io",
     "namespace": "obedsayyad",
     "repository": null,
-    "application_image_digest": "sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea",
-    "operations_image_digest": "sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d",
-    "runner_image_digest": "sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7",
+    "application_image_digest": "sha256:2c1d89c86358dea43e276919d1a4a8c1ff461f02c70871349f5ce3f98119c067",
+    "operations_image_digest": "sha256:b5bcaf18387ce2ecb0f444c3b9ad5dbd88b9ce11da17f776a7e8920551f24c98",
+    "runner_image_digest": "sha256:2291c73234b3cd6e39a8eecbdd2a2f81e33e82d90a739c14f2341e55afef9985",
     "pull_credential_reference": "env://GHCR_READONLY_TOKEN",
     "images": {
       "relief": "drproj-relief",
@@ -2498,7 +2520,7 @@ Use only when automation cannot or must not act (for example the runner is down 
     "Approved exception to the no-invented-IPs rule: the public IPs of the pre-created fixed VMs are recorded in these inputs by operator approval; credentials are never recorded here (env:// references and key file paths only).",
     "env:// names are UPPER_SNAKE_CASE POSIX identifiers. rate_limit_exempt_ips is derived from hosts.testing.public_ip (HAProxy trusted_test_ips.lst and app per-IP limit exemption). Per-provider cap values are integers 0..5; 5 is the immutable ceiling. warm_provider is digitalocean or linode.",
     "No actual credentials, addresses, DNS edits or infrastructure resources are supplied.",
-    "hosts.*.ssh_user is the login for the fixed hosts, which are operated as root (approved deviation: no separate deploy user; cloud VMs still get `drproj`). ssh_key_reference is a path on the developer workstation, not key material. versions.docker is the Docker CE upstream version; the role matches the apt package version glob 5:<version>-*. allow_local_tag is false for every real VM and is true only for local or simulated runs."
+    "hosts.*.location is an optional non-secret place label shown in the relief header (primary default: self-hosted (Pune DC)). hosts.*.ssh_user is the login for the fixed hosts, which are operated as root (approved deviation: no separate deploy user; cloud VMs still get `drproj`). ssh_key_reference is a path on the developer workstation, not key material. versions.docker is the Docker CE upstream version; the role matches the apt package version glob 5:<version>-*. allow_local_tag is false for every real VM and is true only for local or simulated runs."
   ],
   "rate_limit_exempt_ips": [
     "103.141.79.173"
@@ -3010,6 +3032,32 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/instance:
+    servers:
+    - url: https://app.cproj.obed.one
+    get:
+      operationId: getInstanceIdentity
+      summary: Which server answered (display only)
+      tags:
+      - health
+      description: 'Friendly identity of the answering instance, from INSTANCE_ROLE / INSTANCE_PROVIDER / INSTANCE_REGION / INSTANCE_LABEL (written by the Ansible app role). Fields are null when unset. No database dependency, no addresses, no secrets. The same values travel on every response as X-Instance-Role, X-Instance-Provider, X-Instance-Region and X-Instance-Label (region and label URL-encoded).'
+      responses:
+        '200':
+          description: Instance identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instance_id, role, provider, region, label, version]
+                properties:
+                  instance_id: {type: string}
+                  role: {type: [string, 'null'], enum: [primary, warm, elastic, null]}
+                  provider: {type: [string, 'null'], enum: [self_hosted, digitalocean, linode, null]}
+                  region: {type: [string, 'null'], maxLength: 80}
+                  label: {type: [string, 'null'], maxLength: 48}
+                  version: {type: string}
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /health/live:
     servers:
     - url: https://app.cproj.obed.one

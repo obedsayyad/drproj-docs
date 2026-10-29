@@ -89,9 +89,9 @@
     "host": "ghcr.io",
     "namespace": "obedsayyad",
     "repository": null,
-    "application_image_digest": "sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea",
-    "operations_image_digest": "sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d",
-    "runner_image_digest": "sha256:9a12505d52803d7357ce06fb7fbc6e87e6397f6c74748d8d680d1c1619f2c91f",
+    "application_image_digest": "sha256:2c1d89c86358dea43e276919d1a4a8c1ff461f02c70871349f5ce3f98119c067",
+    "operations_image_digest": "sha256:b5bcaf18387ce2ecb0f444c3b9ad5dbd88b9ce11da17f776a7e8920551f24c98",
+    "runner_image_digest": "sha256:2291c73234b3cd6e39a8eecbdd2a2f81e33e82d90a739c14f2341e55afef9985",
     "pull_credential_reference": "env://GHCR_READONLY_TOKEN",
     "images": {
       "relief": "drproj-relief",
