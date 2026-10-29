@@ -90,7 +90,7 @@
     "repository": null,
     "application_image_digest": "sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea",
     "operations_image_digest": "sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d",
-    "runner_image_digest": "sha256:60478b16f3551611653f745dd3285b6767761d0dc3bd38e80642841360f0fa5b",
+    "runner_image_digest": "sha256:04938909c86a72e73cbd5520244278f7e6115a21d653485599f42dbfaeaef196",
     "pull_credential_reference": "env://GHCR_READONLY_TOKEN",
     "images": {
       "relief": "drproj-relief",
