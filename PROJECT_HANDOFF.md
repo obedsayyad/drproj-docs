@@ -1791,7 +1791,7 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 | DEPLOY-PRIMARY: relief app on primary by digest, primary in `ops.instances` (ops 0014) | done | `DEPLOY-PRIMARY.md` |
 | MGMT-STACK: management Compose stack (Caddy, ops, StackStorm, Prometheus, Grafana) via the `mgmt` role, production certificates | done (reconcile fails closed without provider tokens; 60 s timer stays disabled until tokens exist) | `MGMT-STACK.md` |
 | P6.1-LB: HAProxy VM (routing, ACME, rate limits, mTLS Runtime API on 9999, stats/exporter on 8404) via the `lb` role | done (live routing modes need provider tokens; backend CA, admin leaf and key modes re-applied in P6.1-FIX-1) | `P6.1-LB.md` |
-| CLOUD-1: real adapter enabled, first real warm standby (DigitalOcean fra1, Debian 13) | partial (standby created, deployed, UP as `warm_bk`; a stray Linode interim VM still exists and waits for the operator; no uninterrupted end-to-end timing for T28) | `CLOUD-1.md` |
+| CLOUD-1: real adapter enabled, first real warm standby (DigitalOcean fra1, Debian 13); first real orphan adoption and release (T29) | done (standby created, deployed, UP as `warm_bk`; the stack's stray Linode interim VM was imported, bound by reconcile and released by scale-in, Linode at 0); T28 partial: no uninterrupted from-empty timing) | `CLOUD-1.md` |
 
 Direct-IP and metrics exposure (8443, 9464, 9100) is not restricted at the network layer; firewalling is out of scope until the operator asks for it at the end.
 
@@ -2191,6 +2191,13 @@ Use when reconcile finds provider resources tagged `project=cdr` that no operati
 6. Unknown tag combination: reconcile has already marked the slot `held_uncertain` (when the `slot` tag names a free slot) and raised the `orphan:<provider>:<id>` incident, and stops there. Never delete by tag alone. An operator confirms ownership before any delete; after deleting through the provider (or adopting it into the slot's Terraform workspace), the next reconcile finds the slot's resource absent and frees it (or finds it matching and binds it), and the operator resolves the incident.
 7. Release the lock only when the slot state and Terraform state agree.
 
+**Executed once (CLOUD-1, 29 October 2026; evidence `drproj-mgmt/tests/evidence/CLOUD-1.md`).** An interim standby VM whose creating operation had died (no Terraform state, slot `reserved`, `orphan:linode:<id>` open) was adopted and released like this, after the operator confirmed ownership from the tags and the operation record:
+
+1. From the runner as uid st2, in the provider's slot root (`/opt/drproj/infra/terraform/slot-<provider>`): `terraform init -input=false -reconfigure -backend-config=path=$TF_STATE_DIR/<provider>/<slot>/terraform.tfstate`, copy the state to `backups/pre-import-<UTC>.tfstate`, then `terraform import` with the creating operation's `op`, `attempt` and slot variables and the address `module.linode_instance[0].linode_instance.this` (DigitalOcean: `module.do_droplet[0].digitalocean_droplet.this`) and the provider's resource id. The token comes from the runner environment (`LINODE_TOKEN`/`DIGITALOCEAN_TOKEN`), never from argv or a file. A later plan with `exists=true` will show a replacement on Linode (`image`, `authorized_keys` are not importable); do not apply it. The release applies `exists=false`.
+2. Reconcile resolves the slot itself: a slot `reserved` by an operation that has ended is marked `held_uncertain`, and the one tagged resource matching a recorded attempt of that slot makes it `bound` (instance `failed`). Nothing is deleted at this step.
+3. With `warm` bound and ready, reconcile requests `scale_in` of the surplus interim slot (`ops.scale_in_candidate()` prefers it). A slot routed `none` skips the drain. The workflow then runs `begin_slot_release`, `run_heavy terraform_apply exists=false`, `delete_slot_resource` (provider `get` absent and `list_by_tag` empty) and `release_slot`; it took 82 s.
+4. Check: provider instance list empty, slot free, incident events show the release, the slot's Terraform state has no resources (then remove the directory). Resolve the incidents with `cdr.resolve_incident`.
+
 ## 2. HAProxy VM recovery
 
 Manual runbook; the HAProxy VM is a single point of failure (docs/12).
@@ -2301,7 +2308,7 @@ Applies to the schema-swap restore in docs/09. The live schema was renamed to `a
 4. **Reconcile.** A single `cdr.reconcile` must end `succeeded` with `providers_unconfigured=[]` and no orphans; the `provider.unconfigured:*` incidents resolve by themselves.
 5. **Create the warm standby.** `POST /api/operations {"kind":"standby_repair"}` (operator Basic Auth). Watch `GET /api/operations/{id}/events`. If the slot is `held_uncertain`, the workflow builds an interim standby on the **other** provider, so a failed first attempt on the warm provider can create a VM on the second one. Resolve a failed attempt (look at the slot first) before triggering again.
 6. **Check.** `ops.instances` warm ready/backup, HAProxy `warm_bk` UP and `warm_act` maint, `/health/ready` 200 with the CA bundle, Prometheus `relief` and `node` up for the new address, exactly one droplet tagged `project=cdr`, the slot's Terraform state 0600 under `/var/lib/drproj/terraform/<provider>/<slot>/`.
-7. **A VM without Terraform state** (an apply killed mid-run) shows up as `orphan:<provider>:<id>` with the slot `reserved`. Follow section 1, step 6: confirm ownership from the tags (`project`, `slot`, `op`), delete it through the provider (or import it), let reconcile free the slot, resolve the incidents with `cdr.resolve_incident`, and remove the empty slot directory from the state dir.
+7. **A VM without Terraform state** (an apply killed mid-run) shows up as `orphan:<provider>:<id>` with the slot `reserved`. Follow section 1, step 6 (confirm ownership from the tags `project`, `slot`, `op`); the procedure that was executed in CLOUD-1 (import, reconcile binds, scale-in releases) is at the end of section 1. Resolve the incidents with `cdr.resolve_incident` and remove the empty slot directory from the state dir.
 
 ## 9. Load balancer bring-up (P6.1)
 

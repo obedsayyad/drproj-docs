@@ -160,7 +160,7 @@ ansible-playbook -i inventory/generated.yml playbooks/ca-init.yml
 | DEPLOY-PRIMARY: relief app on primary by digest, primary in `ops.instances` (ops 0014) | done | `DEPLOY-PRIMARY.md` |
 | MGMT-STACK: management Compose stack (Caddy, ops, StackStorm, Prometheus, Grafana) via the `mgmt` role, production certificates | done (reconcile fails closed without provider tokens; 60 s timer stays disabled until tokens exist) | `MGMT-STACK.md` |
 | P6.1-LB: HAProxy VM (routing, ACME, rate limits, mTLS Runtime API on 9999, stats/exporter on 8404) via the `lb` role | done (live routing modes need provider tokens; backend CA, admin leaf and key modes re-applied in P6.1-FIX-1) | `P6.1-LB.md` |
-| CLOUD-1: real adapter enabled, first real warm standby (DigitalOcean fra1, Debian 13) | partial (standby created, deployed, UP as `warm_bk`; a stray Linode interim VM still exists and waits for the operator; no uninterrupted end-to-end timing for T28) | `CLOUD-1.md` |
+| CLOUD-1: real adapter enabled, first real warm standby (DigitalOcean fra1, Debian 13); first real orphan adoption and release (T29) | done (standby created, deployed, UP as `warm_bk`; the stack's stray Linode interim VM was imported, bound by reconcile and released by scale-in, Linode at 0); T28 partial: no uninterrupted from-empty timing) | `CLOUD-1.md` |
 
 Direct-IP and metrics exposure (8443, 9464, 9100) is not restricted at the network layer; firewalling is out of scope until the operator asks for it at the end.
 
