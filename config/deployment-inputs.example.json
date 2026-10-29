@@ -49,7 +49,7 @@
     "memory_mb": 1024,
     "digitalocean": {
       "region": "fra1",
-      "size_id": "s-1vcpu-1gb",
+      "size_id": "s-1vcpu-1gb-intel",
       "image_id": "debian-13-x64",
       "token_reference": "env://DIGITALOCEAN_API_TOKEN",
       "ssh_key_id_reference": "env://DIGITALOCEAN_SSH_KEY_ID"
