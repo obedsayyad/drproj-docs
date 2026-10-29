@@ -1805,7 +1805,7 @@ CI publishes on every push to `main` (`drproj-app` and `drproj-mgmt` `.github/wo
 | Image | Source commit | Digest | Rollback |
 |---|---|---|---|
 | `ghcr.io/obedsayyad/drproj-relief` | `drproj-app` 71ba435 | `sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea` | none yet (first publish) |
-| `ghcr.io/obedsayyad/drproj-operations` | `drproj-mgmt` e79a9ed (RELEASE-1, deployed 2026-10-29) | `sha256:c0ff3d86ec18bddf7a951e950baabc41c40a45f05672607670afd0dc062483ba` | `sha256:7ff3857078daf894f5bb4f4835bb635bedcb1ae197ffc6953c4909efa503f1e4` (running on management before RELEASE-1; first publish was `sha256:b12ee869712a8176c659d2666846c3ff47ede30d579949220b780fcadafa546b`, `drproj-mgmt` e0647d7) |
+| `ghcr.io/obedsayyad/drproj-operations` | `drproj-mgmt` c798637 (P6.2-FIX-1, deployed 2026-10-29) | `sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d` | `sha256:c0ff3d86ec18bddf7a951e950baabc41c40a45f05672607670afd0dc062483ba` (RELEASE-1 build, `drproj-mgmt` e79a9ed; before that `sha256:7ff3857078daf894f5bb4f4835bb635bedcb1ae197ffc6953c4909efa503f1e4`; first publish `sha256:b12ee869712a8176c659d2666846c3ff47ede30d579949220b780fcadafa546b`, `drproj-mgmt` e0647d7) |
 | `ghcr.io/obedsayyad/drproj-runner` | `drproj-mgmt` e0647d7 | `sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7` | none yet (first publish) |
 
 When a later push publishes a new digest, copy the previous digest into the Rollback column before replacing it in the deployment inputs. Pushes that change only the `docs` submodule rebuild an image with the same contents but a new digest (revision label); record the digest you actually deploy.
@@ -2420,7 +2420,7 @@ Use only when automation cannot or must not act (for example the runner is down 
     "namespace": "obedsayyad",
     "repository": null,
     "application_image_digest": "sha256:4427a3a781edc93c0c09ad7da560ffb2659a28d3e6dda74e912c658259adeaea",
-    "operations_image_digest": "sha256:c0ff3d86ec18bddf7a951e950baabc41c40a45f05672607670afd0dc062483ba",
+    "operations_image_digest": "sha256:bfe32a7909c4232038277ced27d0c1b6b97b0012ac22f4c37333e25ff964101d",
     "runner_image_digest": "sha256:dcf8f1babe5fa3f50fc18188a5363518d6967a0004ec6dc8133d50ff6ed97eb7",
     "pull_credential_reference": "env://GHCR_READONLY_TOKEN",
     "images": {
