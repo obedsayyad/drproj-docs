@@ -7,7 +7,6 @@
     "primary": {
       "hosting": "self_hosted",
       "public_ip": "103.141.79.171",
-      "location": "self-hosted (Pune DC)",
       "ssh_user": "root",
       "ssh_key_reference": "~/.ssh/drproj",
       "vcpu": 2,
@@ -147,7 +146,7 @@
     "Approved exception to the no-invented-IPs rule: the public IPs of the pre-created fixed VMs are recorded in these inputs by operator approval; credentials are never recorded here (env:// references and key file paths only).",
     "env:// names are UPPER_SNAKE_CASE POSIX identifiers. rate_limit_exempt_ips is derived from hosts.testing.public_ip (HAProxy trusted_test_ips.lst and app per-IP limit exemption). Per-provider cap values are integers 0..5; 5 is the immutable ceiling. warm_provider is digitalocean or linode.",
     "No actual credentials, addresses, DNS edits or infrastructure resources are supplied.",
-    "hosts.*.location is an optional non-secret place label shown in the relief header (primary default: self-hosted (Pune DC)). hosts.*.ssh_user is the login for the fixed hosts, which are operated as root (approved deviation: no separate deploy user; cloud VMs still get `drproj`). ssh_key_reference is a path on the developer workstation, not key material. versions.docker is the Docker CE upstream version; the role matches the apt package version glob 5:<version>-*. allow_local_tag is false for every real VM and is true only for local or simulated runs."
+    "hosts.*.ssh_user is the login for the fixed hosts, which are operated as root (approved deviation: no separate deploy user; cloud VMs still get `drproj`). ssh_key_reference is a path on the developer workstation, not key material. versions.docker is the Docker CE upstream version; the role matches the apt package version glob 5:<version>-*. allow_local_tag is false for every real VM and is true only for local or simulated runs."
   ],
   "rate_limit_exempt_ips": [
     "103.141.79.173"
