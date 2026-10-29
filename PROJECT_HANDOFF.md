@@ -902,12 +902,13 @@ Public origin: https://app.cproj.obed.one. No login.
 | PATCH /api/requests/:id | Validated status transition; requires `expected_version` (integer `version` column); 409 on mismatch |
 | POST /api/demo/workload | Bounded CPU report workload, enabled through a demo-mode setting |
 | GET /health/live | Process liveness; no database dependency |
+| GET /api/instance | Display-only identity of the answering instance: `instance_id`, `role` (primary/warm/elastic), `provider` (self_hosted/digitalocean/linode), `region`, `label`; null when unset; no database, no addresses |
 | GET /health/ready | Initialization, configuration/schema compatibility, required dependencies. Body includes `maintenance` (boolean) and `maintenance_generation` (integer from `ops.runtime_flags.generation`), so automation can confirm each instance observes the flag change |
 | GET /metrics | Application metrics on the diagnostics listener (not routed publicly); no credentials or business record content |
 
 Relief request status transitions: pending to in_progress, in_progress to resolved, in_progress to pending, resolved to in_progress (reopen). Any other transition returns 422. Limits: body 8 KB (413), quantity max 10000, Idempotency-Key pattern `^[A-Za-z0-9_-]{8,128}$`.
 
-Application responses expose instance identity and app version in a harmless response header so traffic distribution is visible. Workload execution uses a bounded worker pool to avoid blocking health handling with synchronous CPU loops.
+Application responses expose instance identity and app version in a harmless response header so traffic distribution is visible. Beyond `X-Instance-Id`, the headers `X-Instance-Role`, `X-Instance-Provider`, `X-Instance-Region` and `X-Instance-Label` (region and label URL-encoded) carry the friendly identity that the relief header shows as `Answered by: <label> · <where>` (for example `Main server · self-hosted (Pune DC)`, `Backup server · DigitalOcean fra1 (Frankfurt)`, `Extra server 2 · Linode eu-central (Frankfurt)`; the raw instance id is the tooltip). The values come from `INSTANCE_ROLE`, `INSTANCE_PROVIDER`, `INSTANCE_REGION` and `INSTANCE_LABEL`, which the Ansible app role writes from the inventory (provider and slot key of `ops.instances`) and the deployment inputs (`cloud_application.<provider>.region`, `hosts.primary.location`, default `self-hosted (Pune DC)`); they are display only and never influence routing or capacity. Workload execution uses a bounded worker pool to avoid blocking health handling with synchronous CPU loops.
 
 ## Management API
 

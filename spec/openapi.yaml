@@ -200,6 +200,32 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/instance:
+    servers:
+    - url: https://app.cproj.obed.one
+    get:
+      operationId: getInstanceIdentity
+      summary: Which server answered (display only)
+      tags:
+      - health
+      description: 'Friendly identity of the answering instance, from INSTANCE_ROLE / INSTANCE_PROVIDER / INSTANCE_REGION / INSTANCE_LABEL (written by the Ansible app role). Fields are null when unset. No database dependency, no addresses, no secrets. The same values travel on every response as X-Instance-Role, X-Instance-Provider, X-Instance-Region and X-Instance-Label (region and label URL-encoded).'
+      responses:
+        '200':
+          description: Instance identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instance_id, role, provider, region, label, version]
+                properties:
+                  instance_id: {type: string}
+                  role: {type: [string, 'null'], enum: [primary, warm, elastic, null]}
+                  provider: {type: [string, 'null'], enum: [self_hosted, digitalocean, linode, null]}
+                  region: {type: [string, 'null'], maxLength: 80}
+                  label: {type: [string, 'null'], maxLength: 48}
+                  version: {type: string}
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /health/live:
     servers:
     - url: https://app.cproj.obed.one
