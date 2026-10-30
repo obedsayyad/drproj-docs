@@ -89,8 +89,8 @@
     "namespace": "obedsayyad",
     "repository": null,
     "application_image_digest": "sha256:2c1d89c86358dea43e276919d1a4a8c1ff461f02c70871349f5ce3f98119c067",
-    "operations_image_digest": "sha256:b5bcaf18387ce2ecb0f444c3b9ad5dbd88b9ce11da17f776a7e8920551f24c98",
-    "runner_image_digest": "sha256:0d1f00dc2981d40cf1285283bb1c89389c7293392f5925ad7b9fe366bb9b8f08",
+    "operations_image_digest": "sha256:a74e1e2a546e017eb2869685c105378ea786ab2dc320f26bb11abcc65fc45a0d",
+    "runner_image_digest": "sha256:b4dc11417bac62af66df01852b30a8c630ea6f6c29bcedc273f48c2a5850d5a7",
     "pull_credential_reference": "env://GHCR_READONLY_TOKEN",
     "images": {
       "relief": "drproj-relief",

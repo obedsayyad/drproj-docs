@@ -151,6 +151,8 @@ Do not casually mount the host Docker socket into the public Node.js API. Keep e
 
 ## Readiness timing
 
+**Source of truth for the running release.** With the real adapter `cdr.wait_ready` admits an instance only when `/health/ready` answers at the instance address with its identity and a `version` equal to the first 12 hex characters of `registry.application_image_digest` in the deployment inputs file on the controller (`real_adapter.ansible.inputs_path`). No `ops.instances` row (the primary's or the instance's own) is consulted: those rows are written by the deploy afterwards (`ops.record_instance_deploy`, docs/05 `ops/0018`) and can only follow the inputs. A different or missing version is not ready (code `digest_mismatch`, reported with `deadline` when the wait ends); an unreadable inputs file or invalid digest fails the action with `inputs_unavailable`. The `app` role records `docker inspect` RepoDigests[0] on every deploy (fixed hosts and cloud VMs).
+
 Start timing at the provisioning attempt's beginning. Query provider status and job progress continuously/boundedly. Report milestones at 240, 360, 480 seconds. Admit earlier on success. At 480 seconds (hard deadline) enter failed/reconciling state if still unready. A failed attempt can require additional cleanup time; do not falsely count cleanup as successful readiness.
 
 RTO targets (to be measured, not yet guarantees):
